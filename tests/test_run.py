@@ -15,10 +15,10 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_CONF = ROOT / "sbbash.default.conf"
+DEFAULT_CONF = ROOT / "sbrun.default.conf"
 IMPLEMENTATIONS = [
-    pytest.param(ROOT / "sbbash", id="c"),
-    pytest.param(ROOT / "sbbash.pl", id="perl"),
+    pytest.param(ROOT / "sbrun", id="c"),
+    pytest.param(ROOT / "sbrun.pl", id="perl"),
 ]
 
 
@@ -139,8 +139,8 @@ def expected_histfile(shell_path: str) -> str:
 
 @pytest.fixture(scope="session")
 def xdg_config_dirs(tmp_path_factory: pytest.TempPathFactory) -> str:
-    config_root = tmp_path_factory.mktemp("sbbash-xdg")
-    config_dir = config_root / "sbbash"
+    config_root = tmp_path_factory.mktemp("sbrun-xdg")
+    config_dir = config_root / "sbrun"
     config_dir.mkdir()
     shutil.copy(DEFAULT_CONF, config_dir / "config")
     return str(config_root)
@@ -160,7 +160,7 @@ def runtime_env(shell_path: str, xdg_config_dirs: str) -> dict[str, str]:
 @pytest.fixture(scope="session")
 def built_binary() -> Path:
     run_cmd(["make"])
-    return ROOT / "sbbash"
+    return ROOT / "sbrun"
 
 
 def test_make_builds() -> None:
@@ -170,21 +170,21 @@ def test_make_builds() -> None:
 
 def test_strict_c_compile() -> None:
     cc = os.environ.get("CC", "cc")
-    run_cmd([cc, "-O2", "-Wall", "-Wextra", "-Wpedantic", "-Werror", "-std=c11", "-o", "/tmp/sbbash-check", "sbbash.c", "-lsandbox"])
+    run_cmd([cc, "-O2", "-Wall", "-Wextra", "-Wpedantic", "-Werror", "-std=c11", "-o", "/tmp/sbrun-check", "sbrun.c", "-lsandbox"])
 
 
 def test_clang_analyze_is_clean() -> None:
-    run_cmd(["clang", "--analyze", "-Xanalyzer", "-analyzer-output=text", "sbbash.c"])
+    run_cmd(["clang", "--analyze", "-Xanalyzer", "-analyzer-output=text", "sbrun.c"])
 
 
 def test_perl_compiles() -> None:
-    run_cmd(["perl", "-c", "sbbash.pl"])
+    run_cmd(["perl", "-c", "sbrun.pl"])
 
 
 def test_install_config_copies_default(tmp_path: Path) -> None:
     install_root = tmp_path / "install-root"
     run_cmd(["make", "install-config", f"DESTDIR={install_root}"])
-    installed = install_root / "usr/local/etc/xdg/sbbash/config"
+    installed = install_root / "usr/local/etc/xdg/sbrun/config"
     assert installed.is_file()
     assert installed.read_text() == DEFAULT_CONF.read_text()
 
@@ -276,7 +276,7 @@ def test_tmp_write_is_allowed(
     runtime_env: dict[str, str],
     tmp_path: Path,
 ) -> None:
-    out_path = Path(f"/tmp/sbbash-test-out.{time.time_ns()}")
+    out_path = Path(f"/tmp/sbrun-test-out.{time.time_ns()}")
     env = dict(runtime_env, TMP_OUT=str(out_path))
     try:
         run_impl(impl, "python3", "-c", 'import os; open(os.environ["TMP_OUT"], "w").write("ok")', env=env)
@@ -291,7 +291,7 @@ def test_home_write_is_denied(
     built_binary: Path,
     runtime_env: dict[str, str],
 ) -> None:
-    deny_path = Path.home() / f".sbbash-denied-test.{time.time_ns()}"
+    deny_path = Path.home() / f".sbrun-denied-test.{time.time_ns()}"
     env = dict(runtime_env, DENY_PATH=str(deny_path))
     try:
         result = run_impl(
@@ -314,7 +314,7 @@ def test_stdio_redirect_guard_blocks_unlisted_home_file(
     built_binary: Path,
     runtime_env: dict[str, str],
 ) -> None:
-    redirect_path = Path.home() / f".sbbash-redirect-test.{time.time_ns()}"
+    redirect_path = Path.home() / f".sbrun-redirect-test.{time.time_ns()}"
     try:
         with redirect_path.open("w") as handle:
             result = subprocess.run(
@@ -338,7 +338,7 @@ def test_writable_dir_flag_allows_directory(
     built_binary: Path,
     runtime_env: dict[str, str],
 ) -> None:
-    allowed_dir = Path.home() / f".sbbash-cli-writable.{time.time_ns()}"
+    allowed_dir = Path.home() / f".sbrun-cli-writable.{time.time_ns()}"
     allowed_file = allowed_dir / "allowed.txt"
     env = dict(runtime_env, CLI_FILE=str(allowed_file))
     allowed_dir.mkdir()
@@ -374,7 +374,7 @@ def test_writable_file_flag_allows_exact_file_and_redirect(
     built_binary: Path,
     runtime_env: dict[str, str],
 ) -> None:
-    allowed_file = Path.home() / f".sbbash-cli-file.{time.time_ns()}"
+    allowed_file = Path.home() / f".sbrun-cli-file.{time.time_ns()}"
     allowed_file.write_text("")
     env = dict(runtime_env, CLI_FILE=str(allowed_file))
     try:

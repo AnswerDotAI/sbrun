@@ -57,8 +57,8 @@ sub print_help {
         "  Otherwise run the given command directly.\n",
         "\n",
         "Config:\n",
-        "  Global config: \$XDG_CONFIG_DIRS/.../sbbash/config\n",
-        "  User config:   \$XDG_CONFIG_HOME/sbbash/config or ~/.config/sbbash/config\n",
+        "  Global config: \$XDG_CONFIG_DIRS/.../sbrun/config\n",
+        "  User config:   \$XDG_CONFIG_HOME/sbrun/config or ~/.config/sbrun/config\n",
         "  Format: writable_path=/path or optional_writable_path=/path\n",
         "          writable_dir=/path and optional_writable_dir=/path are also accepted\n";
 }
@@ -106,9 +106,9 @@ sub pick_shell {
 
 sub config_path {
     my ($host_home, $xdg_config_home) = @_;
-    return path_join(path_join($xdg_config_home, "sbbash"), "config")
+    return path_join(path_join($xdg_config_home, "sbrun"), "config")
         if defined($xdg_config_home) && $xdg_config_home =~ m{\A/};
-    return path_join(path_join(path_join($host_home, ".config"), "sbbash"), "config")
+    return path_join(path_join(path_join($host_home, ".config"), "sbrun"), "config")
         if defined($host_home) && $host_home ne "";
     return undef;
 }
@@ -128,7 +128,7 @@ sub global_config_paths {
     my @roots = defined($ENV{XDG_CONFIG_DIRS}) && $ENV{XDG_CONFIG_DIRS} ne ""
         ? grep { $_ =~ m{\A/} } split(/:/, $ENV{XDG_CONFIG_DIRS})
         : default_global_config_dirs();
-    return map { path_join(path_join($_, "sbbash"), "config") } @roots;
+    return map { path_join(path_join($_, "sbrun"), "config") } @roots;
 }
 
 sub trim_whitespace {

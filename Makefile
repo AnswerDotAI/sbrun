@@ -10,24 +10,24 @@ BINDIR ?= $(PREFIX)/bin
 XDGCONFIGDIR ?= $(PREFIX)/etc/xdg
 CPPFLAGS += -DSBBASH_DEFAULT_XDG_CONFIG_DIRS='"$(XDGCONFIGDIR):/opt/homebrew/etc/xdg:/usr/local/etc/xdg:/etc/xdg"'
 
-all: sbbash
+all: sbrun
 
-sbbash: sbbash.c
+sbrun: sbrun.c
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $< $(LDLIBS)
 
-install-config: sbbash.default.conf
-	install -d $(DESTDIR)$(XDGCONFIGDIR)/sbbash
-	[ -f $(DESTDIR)$(XDGCONFIGDIR)/sbbash/config ] || install -m 0644 sbbash.default.conf $(DESTDIR)$(XDGCONFIGDIR)/sbbash/config
+install-config: sbrun.default.conf
+	install -d $(DESTDIR)$(XDGCONFIGDIR)/sbrun
+	[ -f $(DESTDIR)$(XDGCONFIGDIR)/sbrun/config ] || install -m 0644 sbrun.default.conf $(DESTDIR)$(XDGCONFIGDIR)/sbrun/config
 
-install: sbbash install-config
+install: sbrun install-config
 	install -d $(DESTDIR)$(BINDIR)
-	install -m 0755 sbbash $(DESTDIR)$(BINDIR)/sbbash
+	install -m 0755 sbrun $(DESTDIR)$(BINDIR)/sbrun
 
-install-perl: sbbash.pl install-config
+install-perl: sbrun.pl install-config
 	install -d $(DESTDIR)$(BINDIR)
-	install -m 0755 sbbash.pl $(DESTDIR)$(BINDIR)/sbbash.pl
+	install -m 0755 sbrun.pl $(DESTDIR)$(BINDIR)/sbrun.pl
 
 clean:
-	rm -f sbbash *.o
+	rm -f sbrun *.o
 
 .PHONY: all install install-config install-perl clean

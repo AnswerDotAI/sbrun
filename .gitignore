@@ -1,9 +1,9 @@
 tags
-.sbbash-home/
-.sbbash-tmp/
-.sbbash_history
-.sbbash-smoke-*
+.sbrun-home/
+.sbrun-tmp/
+.sbrun_history
+.sbrun-smoke-*
 *.o
-sbbash
+sbrun
 .pytest_cache/
 __pycache__/

@@ -53,7 +53,7 @@ struct strbuf {
 
 static void __attribute__((noreturn, format(printf, 1, 2))) dief(const char *fmt, ...) {
     va_list ap;
-    fprintf(stderr, "sbbash: ");
+    fprintf(stderr, "sbrun: ");
     va_start(ap, fmt);
     vfprintf(stderr, fmt, ap);
     va_end(ap);
@@ -225,8 +225,8 @@ static void print_help(FILE *out, const char *prog) {
             "  Otherwise run the given command directly.\n"
             "\n"
             "Config:\n"
-            "  Global config: $XDG_CONFIG_DIRS/.../sbbash/config\n"
-            "  User config:   $XDG_CONFIG_HOME/sbbash/config or ~/.config/sbbash/config\n"
+            "  Global config: $XDG_CONFIG_DIRS/.../sbrun/config\n"
+            "  User config:   $XDG_CONFIG_HOME/sbrun/config or ~/.config/sbrun/config\n"
             "  Format: writable_path=/path or optional_writable_path=/path\n"
             "          writable_dir=/path and optional_writable_dir=/path are also accepted\n",
             prog,
@@ -302,7 +302,7 @@ static char *config_path(const char *host_home, const char *xdg_config_home) {
         return NULL;
     }
 
-    char *config_dir = path_join(config_root, "sbbash");
+    char *config_dir = path_join(config_root, "sbrun");
     free(config_root);
     char *path = path_join(config_dir, "config");
     free(config_dir);
@@ -376,7 +376,7 @@ static void load_system_config_writable_dirs(struct strlist *dirs,
             char *root = xmalloc(len + 1);
             memcpy(root, start, len);
             root[len] = '\0';
-            char *config_dir = path_join(root, "sbbash");
+            char *config_dir = path_join(root, "sbrun");
             char *path = path_join(config_dir, "config");
             load_config_writable_dirs_from_path(dirs, optional_dirs, path);
             free(path);
