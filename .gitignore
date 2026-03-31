@@ -1,0 +1,7 @@
+tags
+.sbbash-home/
+.sbbash-tmp/
+.sbbash_history
+.sbbash-smoke-*
+*.o
+sbbash
