@@ -4,10 +4,11 @@ use strict;
 use warnings;
 
 use Cwd qw(realpath);
-use Errno qw(EACCES ENOENT EEXIST EPERM);
+use Errno qw(EACCES ENOENT ENOTDIR EEXIST EPERM);
 use POSIX qw(_SC_OPEN_MAX sysconf ttyname);
 
 use constant F_GETPATH => 50;
+use constant DEFAULT_XDG_CONFIG_DIRS => "/opt/homebrew/etc/xdg:/usr/local/etc/xdg:/etc/xdg";
 
 my $prog_name = do {
     my $name = $0;
@@ -43,21 +44,23 @@ sub print_help {
         "Usage: $prog_name [options] [command [args...]]\n",
         "\n",
         "Run commands under macOS sandbox-exec with writes confined to the\n",
-        "current directory tree plus any configured extra writable directories.\n",
+        "current directory tree plus any configured extra writable paths.\n",
         "\n",
         "Options:\n",
         "  -h, --help           Show this help and exit\n",
-        "  -w, --writable DIR   Allow writes under DIR; may be repeated\n",
+        "  -w, --writable PATH  Allow writes to PATH; may be repeated\n",
         "  --                   Stop parsing $prog_name options and force command mode\n",
         "\n",
         "Behavior:\n",
-        "  With no command, start \$SHELL interactively.\n",
+        "  With no command, start \$SHELL as an interactive login shell.\n",
         "  If the first non-option argument starts with '-', pass arguments to \$SHELL.\n",
         "  Otherwise run the given command directly.\n",
         "\n",
         "Config:\n",
-        "  \$XDG_CONFIG_HOME/sbbash/config or ~/.config/sbbash/config\n",
-        "  Format: writable_dir=/absolute/or/~/path\n";
+        "  Global config: \$XDG_CONFIG_DIRS/.../sbbash/config\n",
+        "  User config:   \$XDG_CONFIG_HOME/sbbash/config or ~/.config/sbbash/config\n",
+        "  Format: writable_path=/path or optional_writable_path=/path\n",
+        "          writable_dir=/path and optional_writable_dir=/path are also accepted\n";
 }
 
 sub cli_requests_help {
@@ -110,6 +113,24 @@ sub config_path {
     return undef;
 }
 
+sub default_global_config_dirs {
+    my @dirs;
+    my $script = realpath($0);
+    push @dirs, path_join($1, "etc/xdg")
+        if defined($script) && $script =~ m{\A(.+)/bin/[^/]+\z};
+    push @dirs, split /:/, DEFAULT_XDG_CONFIG_DIRS;
+
+    my %seen;
+    return grep { $_ =~ m{\A/} && !$seen{$_}++ } @dirs;
+}
+
+sub global_config_paths {
+    my @roots = defined($ENV{XDG_CONFIG_DIRS}) && $ENV{XDG_CONFIG_DIRS} ne ""
+        ? grep { $_ =~ m{\A/} } split(/:/, $ENV{XDG_CONFIG_DIRS})
+        : default_global_config_dirs();
+    return map { path_join(path_join($_, "sbbash"), "config") } @roots;
+}
+
 sub trim_whitespace {
     my ($s) = @_;
     $s =~ s/\A\s+//;
@@ -127,30 +148,36 @@ sub expand_home_path {
     dief("unsupported home expansion in path %s", $path);
 }
 
-sub resolve_writable_dir {
-    my ($path, $host_home) = @_;
+sub resolve_writable_path {
+    my ($path, $host_home, $optional) = @_;
     my $expanded = expand_home_path($path, $host_home);
+    if (!-e $expanded) {
+        return undef if $optional;
+        local $! = ENOENT;
+        dief("additional writable path %s: %s", $path, $!);
+    }
     my $resolved = realpath($expanded);
-    dief("additional writable directory %s: %s", $path, $!)
+    return undef if !defined($resolved) && $optional && ($! == ENOENT || $! == ENOTDIR);
+    dief("additional writable path %s: %s", $path, $!)
         if !defined($resolved);
-    dief("additional writable directory %s resolves to %s, which is not a directory", $path, $resolved)
-        if !-d $resolved;
-    return $resolved;
+    return ($resolved, "dir") if -d $resolved;
+    return ($resolved, "file") if -f $resolved;
+    return undef if $optional;
+    dief("additional writable path %s resolves to %s, which is not a regular file or directory", $path, $resolved);
 }
 
-sub add_writable_dir {
-    my ($dirs, $seen, $path, $host_home) = @_;
-    my $resolved = resolve_writable_dir($path, $host_home);
+sub add_writable_path {
+    my ($dirs, $files, $seen, $path, $host_home, $optional) = @_;
+    my ($resolved, $kind) = resolve_writable_path($path, $host_home, $optional);
+    return if !defined($resolved);
     return if $seen->{$resolved};
-    push @$dirs, $resolved;
+    push @{$kind eq "dir" ? $dirs : $files}, $resolved;
     $seen->{$resolved} = 1;
 }
 
-sub load_config_writable_dirs {
-    my ($dirs, $seen, $host_home, $xdg_config_home) = @_;
-    my $path = config_path($host_home, $xdg_config_home);
+sub load_config_writable_paths_from_path {
+    my ($dirs, $files, $seen, $host_home, $path) = @_;
     return if !defined($path) || !-e $path;
-
     open my $fh, "<", $path or dief("%s: %s", $path, $!);
     my $lineno = 0;
     while (my $line = <$fh>) {
@@ -163,15 +190,31 @@ sub load_config_writable_dirs {
         dief("%s:%d: expected key=value", $path, $lineno) if !defined($value);
         $key = trim_whitespace($key);
         $value = trim_whitespace($value);
-        dief("%s:%d: unknown key %s", $path, $lineno, $key) if $key ne "writable_dir";
-        dief("%s:%d: writable_dir requires a path", $path, $lineno) if $value eq "";
-        add_writable_dir($dirs, $seen, $value, $host_home);
+        if ($key eq "writable_dir" || $key eq "writable_path") {
+            dief("%s:%d: %s requires a path", $path, $lineno, $key) if $value eq "";
+            add_writable_path($dirs, $files, $seen, $value, $host_home, 0);
+            next;
+        }
+        if ($key eq "optional_writable_dir" || $key eq "optional_writable_path") {
+            dief("%s:%d: %s requires a path", $path, $lineno, $key) if $value eq "";
+            add_writable_path($dirs, $files, $seen, $value, $host_home, 1);
+            next;
+        }
+        dief("%s:%d: unknown key %s", $path, $lineno, $key);
     }
     close $fh or dief("%s: %s", $path, $!);
 }
 
+sub load_config_writable_paths {
+    my ($dirs, $files, $seen, $host_home, $xdg_config_home) = @_;
+    for my $path (global_config_paths()) {
+        load_config_writable_paths_from_path($dirs, $files, $seen, $host_home, $path);
+    }
+    load_config_writable_paths_from_path($dirs, $files, $seen, $host_home, config_path($host_home, $xdg_config_home));
+}
+
 sub parse_cli_options {
-    my ($dirs, $seen, $host_home, @argv) = @_;
+    my ($dirs, $files, $seen, $host_home, @argv) = @_;
     my $force_command = 0;
     my $i = 0;
 
@@ -182,15 +225,15 @@ sub parse_cli_options {
             last;
         }
         if ($argv[$i] eq "-w" || $argv[$i] eq "--writable") {
-            dief("%s requires a directory argument", $argv[$i]) if $i + 1 >= @argv;
-            add_writable_dir($dirs, $seen, $argv[$i + 1], $host_home);
+            dief("%s requires a path argument", $argv[$i]) if $i + 1 >= @argv;
+            add_writable_path($dirs, $files, $seen, $argv[$i + 1], $host_home, 0);
             $i += 2;
             next;
         }
         if ($argv[$i] =~ /\A--writable=(.*)\z/s) {
             my $value = $1;
-            dief("--writable requires a directory argument") if $value eq "";
-            add_writable_dir($dirs, $seen, $value, $host_home);
+            dief("--writable requires a path argument") if $value eq "";
+            add_writable_path($dirs, $files, $seen, $value, $host_home, 0);
             ++$i;
             next;
         }
@@ -199,30 +242,6 @@ sub parse_cli_options {
 
     my @remaining = @argv[$i .. $#argv];
     return ($force_command, @remaining);
-}
-
-sub try_ensure_dir {
-    my ($path, $mode) = @_;
-
-    if (lstat($path)) {
-        dief("%s exists but is a symlink", $path) if -l _;
-        dief("%s exists but is not a directory", $path) if !-d _;
-        return 1;
-    }
-    return 0 if $! == EACCES || $! == EPERM;
-    die_errno("lstat($path)") if $! != ENOENT;
-
-    return 1 if mkdir($path, $mode);
-
-    if ($! == EEXIST) {
-        if (lstat($path)) {
-            dief("%s exists but is a symlink", $path) if -l _;
-            return 1 if -d _;
-            dief("%s exists but is not a directory", $path);
-        }
-    }
-    return 0 if $! == EACCES || $! == EPERM;
-    die_errno("mkdir($path)");
 }
 
 sub close_extra_fds {
@@ -240,11 +259,14 @@ sub path_is_within {
     return $tail eq "" || $tail eq "/";
 }
 
-sub path_is_within_allowed_dirs {
-    my ($path, $workdir, $extra_writable_dirs) = @_;
+sub path_is_allowed_write_target {
+    my ($path, $workdir, $extra_writable_dirs, $extra_writable_files) = @_;
     return 1 if path_is_within($path, $workdir);
     for my $dir (@$extra_writable_dirs) {
         return 1 if path_is_within($path, $dir);
+    }
+    for my $file (@$extra_writable_files) {
+        return 1 if $path eq $file;
     }
     return 0;
 }
@@ -274,7 +296,7 @@ sub fd_regular_path {
 }
 
 sub refuse_redirected_regular_stdio {
-    my ($workdir, $extra_writable_dirs) = @_;
+    my ($workdir, $extra_writable_dirs, $extra_writable_files) = @_;
     return if defined($ENV{SBBASH_ALLOW_STDIO_REDIRECTS}) && $ENV{SBBASH_ALLOW_STDIO_REDIRECTS} eq "1";
 
     for my $fd (1, 2) {
@@ -285,12 +307,12 @@ sub refuse_redirected_regular_stdio {
             "fd %d is redirected to %s outside allowed writable directories; refusing to start (set SBBASH_ALLOW_STDIO_REDIRECTS=1 to override)",
             $fd,
             $final_path
-        ) if !path_is_within_allowed_dirs($final_path, $workdir, $extra_writable_dirs);
+        ) if !path_is_allowed_write_target($final_path, $workdir, $extra_writable_dirs, $extra_writable_files);
     }
 }
 
 sub sanitize_env {
-    my ($workdir, $sandbox_home, $sandbox_tmp, $histfile, $host_home, $user_name, $shell_path) = @_;
+    my ($workdir, $tmpdir, $histfile, $host_home, $user_name, $shell_path) = @_;
     my $term = $ENV{TERM};
     my $lang = $ENV{LANG};
     my $lc_all = $ENV{LC_ALL};
@@ -304,9 +326,13 @@ sub sanitize_env {
 
     $ENV{PATH} = $path;
     $ENV{PWD} = $workdir;
-    $ENV{HOME} = $sandbox_home;
-    $ENV{TMPDIR} = $sandbox_tmp;
-    $ENV{HISTFILE} = $histfile;
+    $ENV{HOME} = $host_home if defined($host_home) && $host_home ne "";
+    $ENV{TMPDIR} = $tmpdir;
+    if (defined($histfile)) {
+        $ENV{HISTFILE} = $histfile;
+    } else {
+        delete $ENV{HISTFILE};
+    }
     $ENV{SHELL} = $shell_path;
     $ENV{SBBASH_WORKDIR} = $workdir;
 
@@ -336,7 +362,7 @@ sub escape_sandbox_string {
 }
 
 sub build_profile_text {
-    my ($extra_writable_dirs) = @_;
+    my ($extra_writable_dirs, $extra_writable_files, $allow_histfile) = @_;
     my $profile = <<'EOF';
 (version 1)
 (deny default)
@@ -357,17 +383,23 @@ sub build_profile_text {
     (literal "/dev/tty")
     (literal (param "TTY")))
 
-; the writable places are rooted under the launch directory plus any configured extras
+; the writable places are rooted under the launch directory and any configured extras
 (allow file-write*
     (subpath (param "WORKDIR"))
-    (subpath (param "HOME"))
-    (subpath (param "TMPDIR"))
 EOF
 
     for my $dir (@$extra_writable_dirs) {
         $profile .= sprintf("    (subpath \"%s\")\n", escape_sandbox_string($dir));
     }
     $profile .= ")\n";
+    if ($allow_histfile || @$extra_writable_files) {
+        $profile .= "(allow file-write*\n";
+        $profile .= "    (literal (param \"HISTFILE\"))\n" if $allow_histfile;
+        for my $file (@$extra_writable_files) {
+            $profile .= sprintf("    (literal \"%s\")\n", escape_sandbox_string($file));
+        }
+        $profile .= ")\n";
+    }
     return $profile;
 }
 
@@ -395,22 +427,20 @@ die_errno("realpath(.)") if !defined($workdir);
 chdir($workdir) or die_errno("chdir($workdir)");
 
 my @extra_writable_dirs;
-my %seen_extra_writable_dirs;
-load_config_writable_dirs(\@extra_writable_dirs, \%seen_extra_writable_dirs, $host_home, $xdg_config_home);
+my @extra_writable_files;
+my %seen_extra_writable_paths;
+load_config_writable_paths(\@extra_writable_dirs, \@extra_writable_files, \%seen_extra_writable_paths, $host_home, $xdg_config_home);
 my ($force_command, @remaining_argv) =
-    parse_cli_options(\@extra_writable_dirs, \%seen_extra_writable_dirs, $host_home, @ARGV);
+    parse_cli_options(\@extra_writable_dirs, \@extra_writable_files, \%seen_extra_writable_paths, $host_home, @ARGV);
 
-refuse_redirected_regular_stdio($workdir, \@extra_writable_dirs);
+refuse_redirected_regular_stdio($workdir, \@extra_writable_dirs, \@extra_writable_files);
 
-my $sandbox_home = path_join($workdir, ".sbbash-home");
-my $sandbox_tmp = path_join($workdir, ".sbbash-tmp");
-$sandbox_home = $workdir if !try_ensure_dir($sandbox_home, 0700);
-$sandbox_tmp = $workdir if !try_ensure_dir($sandbox_tmp, 0700);
+my $tmpdir = "/tmp";
+my $histfile = defined($host_home) && $host_home ne ""
+    ? path_join($host_home, history_file_name_for_shell($shell_path))
+    : undef;
 
-my $histname = history_file_name_for_shell($shell_path);
-my $histfile = $sandbox_home eq $workdir ? path_join($workdir, ".sbbash_history") : path_join($sandbox_home, $histname);
-
-sanitize_env($workdir, $sandbox_home, $sandbox_tmp, $histfile, $host_home, $user_name, $shell_path);
+sanitize_env($workdir, $tmpdir, $histfile, $host_home, $user_name, $shell_path);
 close_extra_fds();
 
 my $tty_path = ttyname(fileno(STDIN));
@@ -418,13 +448,13 @@ $tty_path = ttyname(fileno(STDOUT)) if !defined($tty_path);
 $tty_path = ttyname(fileno(STDERR)) if !defined($tty_path);
 $tty_path = "/dev/tty" if !defined($tty_path) || $tty_path eq "";
 
-my $profile = build_profile_text(\@extra_writable_dirs);
+my $profile = build_profile_text(\@extra_writable_dirs, \@extra_writable_files, defined($histfile));
 
 dief("`--` requires a command to run") if $force_command && !@remaining_argv;
 
 my @run_argv;
 if (!@remaining_argv) {
-    @run_argv = ($shell_path, "-i");
+    @run_argv = ($shell_path, "-l", "-i");
 } elsif (!$force_command && $remaining_argv[0] =~ /\A-/) {
     @run_argv = ($shell_path, @remaining_argv);
 } else {
@@ -434,9 +464,8 @@ if (!@remaining_argv) {
 exec_sandbox(
     "/usr/bin/sandbox-exec",
     "-D", "WORKDIR=$workdir",
-    "-D", "HOME=$sandbox_home",
-    "-D", "TMPDIR=$sandbox_tmp",
     "-D", "TTY=$tty_path",
+    (defined($histfile) ? ("-D", "HISTFILE=$histfile") : ()),
     "-p", $profile,
     @run_argv,
 );

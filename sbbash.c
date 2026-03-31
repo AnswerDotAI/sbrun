@@ -25,6 +25,20 @@
 #define PATH_MAX 4096
 #endif
 
+#ifndef SBBASH_DEFAULT_XDG_CONFIG_DIRS
+#define SBBASH_DEFAULT_XDG_CONFIG_DIRS "/opt/homebrew/etc/xdg:/usr/local/etc/xdg:/etc/xdg"
+#endif
+
+typedef void *sandbox_params_t;
+typedef void *sandbox_profile_t;
+
+extern sandbox_params_t sandbox_create_params(void);
+extern int sandbox_set_param(sandbox_params_t params, const char *key, const char *value);
+extern void sandbox_free_params(sandbox_params_t params);
+extern sandbox_profile_t sandbox_compile_string(const char *profile, sandbox_params_t params, char **errorbuf);
+extern void sandbox_free_profile(sandbox_profile_t profile);
+extern int sandbox_apply(sandbox_profile_t profile);
+
 struct strlist {
     char **items;
     size_t len;
@@ -197,22 +211,24 @@ static void print_help(FILE *out, const char *prog) {
     fprintf(out,
             "Usage: %s [options] [command [args...]]\n"
             "\n"
-            "Run commands under macOS sandbox-exec with writes confined to the\n"
-            "current directory tree plus any configured extra writable directories.\n"
+            "Run commands under the macOS sandbox with writes confined to the\n"
+            "current directory tree plus any configured extra writable paths.\n"
             "\n"
             "Options:\n"
             "  -h, --help           Show this help and exit\n"
-            "  -w, --writable DIR   Allow writes under DIR; may be repeated\n"
+            "  -w, --writable PATH  Allow writes to PATH; may be repeated\n"
             "  --                   Stop parsing %s options and force command mode\n"
             "\n"
             "Behavior:\n"
-            "  With no command, start $SHELL interactively.\n"
+            "  With no command, start $SHELL as an interactive login shell.\n"
             "  If the first non-option argument starts with '-', pass arguments to $SHELL.\n"
             "  Otherwise run the given command directly.\n"
             "\n"
             "Config:\n"
-            "  $XDG_CONFIG_HOME/sbbash/config or ~/.config/sbbash/config\n"
-            "  Format: writable_dir=/absolute/or/~/path\n",
+            "  Global config: $XDG_CONFIG_DIRS/.../sbbash/config\n"
+            "  User config:   $XDG_CONFIG_HOME/sbbash/config or ~/.config/sbbash/config\n"
+            "  Format: writable_path=/path or optional_writable_path=/path\n"
+            "          writable_dir=/path and optional_writable_dir=/path are also accepted\n",
             prog,
             prog);
 }
@@ -241,6 +257,15 @@ static bool cli_requests_help(int argc, char **argv) {
 
 static bool shell_is_bash(const char *shell_path) {
     return strcmp(base_name(shell_path), "bash") == 0;
+}
+
+static char *login_shell_argv0(const char *shell_path) {
+    const char *name = base_name(shell_path);
+    size_t n = strlen(name) + 2;
+    char *out = xmalloc(n);
+    out[0] = '-';
+    memcpy(out + 1, name, n - 1);
+    return out;
 }
 
 static const char *history_file_name_for_shell(const char *shell_path) {
@@ -284,16 +309,10 @@ static char *config_path(const char *host_home, const char *xdg_config_home) {
     return path;
 }
 
-static void load_config_writable_dirs(struct strlist *dirs, const char *host_home, const char *xdg_config_home) {
-    char *path = config_path(host_home, xdg_config_home);
-    if (!path) {
-        return;
-    }
-
+static void load_config_writable_dirs_from_path(struct strlist *dirs, struct strlist *optional_dirs, const char *path) {
     FILE *fp = fopen(path, "r");
     if (!fp) {
         if (errno == ENOENT) {
-            free(path);
             return;
         }
         dief("%s: %s", path, strerror(errno));
@@ -316,13 +335,23 @@ static void load_config_writable_dirs(struct strlist *dirs, const char *host_hom
         *eq = '\0';
         char *key = trim_whitespace(s);
         char *value = trim_whitespace(eq + 1);
-        if (strcmp(key, "writable_dir") != 0) {
+        if (strcmp(key, "writable_dir") == 0 || strcmp(key, "writable_path") == 0) {
+            if (value[0] == '\0') {
+                dief("%s:%zu: %s requires a path", path, lineno, key);
+            }
+            strlist_append_dup(dirs, value);
+            continue;
+        }
+        if (strcmp(key, "optional_writable_dir") == 0 || strcmp(key, "optional_writable_path") == 0) {
+            if (value[0] == '\0') {
+                dief("%s:%zu: %s requires a path", path, lineno, key);
+            }
+            strlist_append_dup(optional_dirs, value);
+            continue;
+        }
+        {
             dief("%s:%zu: unknown key %s", path, lineno, key);
         }
-        if (value[0] == '\0') {
-            dief("%s:%zu: writable_dir requires a path", path, lineno);
-        }
-        strlist_append_dup(dirs, value);
     }
     if (ferror(fp)) {
         dief("%s: %s", path, strerror(errno));
@@ -330,6 +359,46 @@ static void load_config_writable_dirs(struct strlist *dirs, const char *host_hom
 
     free(line);
     fclose(fp);
+}
+
+static void load_system_config_writable_dirs(struct strlist *dirs,
+                                             struct strlist *optional_dirs,
+                                             const char *xdg_config_dirs) {
+    const char *roots = (xdg_config_dirs && xdg_config_dirs[0] != '\0')
+        ? xdg_config_dirs
+        : SBBASH_DEFAULT_XDG_CONFIG_DIRS;
+
+    const char *start = roots;
+    while (*start) {
+        const char *end = strchr(start, ':');
+        size_t len = end ? (size_t)(end - start) : strlen(start);
+        if (len > 0 && start[0] == '/') {
+            char *root = xmalloc(len + 1);
+            memcpy(root, start, len);
+            root[len] = '\0';
+            char *config_dir = path_join(root, "sbbash");
+            char *path = path_join(config_dir, "config");
+            load_config_writable_dirs_from_path(dirs, optional_dirs, path);
+            free(path);
+            free(config_dir);
+            free(root);
+        }
+        if (!end) {
+            break;
+        }
+        start = end + 1;
+    }
+}
+
+static void load_user_config_writable_dirs(struct strlist *dirs,
+                                           struct strlist *optional_dirs,
+                                           const char *host_home,
+                                           const char *xdg_config_home) {
+    char *path = config_path(host_home, xdg_config_home);
+    if (!path) {
+        return;
+    }
+    load_config_writable_dirs_from_path(dirs, optional_dirs, path);
     free(path);
 }
 
@@ -345,7 +414,7 @@ static void parse_cli_options(int argc, char **argv, struct strlist *dirs, int *
         }
         if (strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--writable") == 0) {
             if (i + 1 >= argc) {
-                dief("%s requires a directory argument", argv[i]);
+                dief("%s requires a path argument", argv[i]);
             }
             strlist_append_dup(dirs, argv[i + 1]);
             i += 2;
@@ -354,7 +423,7 @@ static void parse_cli_options(int argc, char **argv, struct strlist *dirs, int *
         if (strncmp(argv[i], "--writable=", 11) == 0) {
             const char *value = argv[i] + 11;
             if (value[0] == '\0') {
-                dief("--writable requires a directory argument");
+                dief("--writable requires a path argument");
             }
             strlist_append_dup(dirs, value);
             ++i;
@@ -366,66 +435,57 @@ static void parse_cli_options(int argc, char **argv, struct strlist *dirs, int *
     *arg_index = i;
 }
 
-static char *resolve_writable_dir(const char *path, const char *host_home) {
+static char *resolve_writable_path(const char *path, const char *host_home, bool optional, bool *is_dir) {
     char *expanded = expand_home_path(path, host_home);
     char resolved[PATH_MAX];
     if (!realpath(expanded, resolved)) {
-        dief("additional writable directory %s: %s", path, strerror(errno));
+        int err = errno;
+        free(expanded);
+        if (optional && (err == ENOENT || err == ENOTDIR)) {
+            return NULL;
+        }
+        dief("additional writable path %s: %s", path, strerror(err));
     }
     free(expanded);
 
     struct stat st;
     if (stat(resolved, &st) != 0) {
-        dief("additional writable directory %s: %s", path, strerror(errno));
+        if (optional && errno == ENOENT) {
+            return NULL;
+        }
+        dief("additional writable path %s: %s", path, strerror(errno));
     }
-    if (!S_ISDIR(st.st_mode)) {
-        dief("additional writable directory %s resolves to %s, which is not a directory", path, resolved);
+    if (S_ISDIR(st.st_mode)) {
+        *is_dir = true;
+        return xstrdup(resolved);
     }
+    if (!S_ISREG(st.st_mode)) {
+        if (optional) {
+            return NULL;
+        }
+        dief("additional writable path %s resolves to %s, which is not a regular file or directory", path, resolved);
+    }
+    *is_dir = false;
     return xstrdup(resolved);
 }
 
-static void resolve_writable_dirs(struct strlist *resolved_dirs, const struct strlist *raw_dirs, const char *host_home) {
+static void resolve_writable_paths(struct strlist *resolved_dirs,
+                                   struct strlist *resolved_files,
+                                   const struct strlist *raw_dirs,
+                                   const char *host_home,
+                                   bool optional) {
     for (size_t i = 0; i < raw_dirs->len; ++i) {
-        strlist_append_unique_owned(resolved_dirs, resolve_writable_dir(raw_dirs->items[i], host_home));
-    }
-}
-
-static bool try_ensure_dir(const char *path, mode_t mode) {
-    struct stat st;
-    if (lstat(path, &st) == 0) {
-        if (S_ISLNK(st.st_mode)) {
-            dief("%s exists but is a symlink", path);
+        bool is_dir = false;
+        char *resolved = resolve_writable_path(raw_dirs->items[i], host_home, optional, &is_dir);
+        if (!resolved) {
+            continue;
         }
-        if (!S_ISDIR(st.st_mode)) {
-            dief("%s exists but is not a directory", path);
-        }
-        return true;
-    }
-    if (errno != ENOENT) {
-        if (errno == EACCES || errno == EPERM) {
-            return false;
-        }
-        die_errno("lstat");
-    }
-    if (mkdir(path, mode) == 0) {
-        return true;
-    }
-    if (errno == EEXIST) {
-        if (lstat(path, &st) == 0) {
-            if (S_ISLNK(st.st_mode)) {
-                dief("%s exists but is a symlink", path);
-            }
-            if (S_ISDIR(st.st_mode)) {
-                return true;
-            }
-            dief("%s exists but is not a directory", path);
+        if (is_dir) {
+            strlist_append_unique_owned(resolved_dirs, resolved);
+        } else {
+            strlist_append_unique_owned(resolved_files, resolved);
         }
     }
-    if (errno == EACCES || errno == EPERM) {
-        return false;
-    }
-    die_errno("mkdir");
-    return false;
 }
 
 static void close_extra_fds(void) {
@@ -453,7 +513,10 @@ static bool path_is_within(const char *path, const char *dir) {
     return path[dlen] == '\0' || path[dlen] == '/';
 }
 
-static bool path_is_within_allowed_dirs(const char *path, const char *workdir, const struct strlist *extra_writable_dirs) {
+static bool path_is_allowed_write_target(const char *path,
+                                         const char *workdir,
+                                         const struct strlist *extra_writable_dirs,
+                                         const struct strlist *extra_writable_files) {
     if (path_is_within(path, workdir)) {
         return true;
     }
@@ -462,11 +525,18 @@ static bool path_is_within_allowed_dirs(const char *path, const char *workdir, c
             return true;
         }
     }
+    for (size_t i = 0; i < extra_writable_files->len; ++i) {
+        if (strcmp(path, extra_writable_files->items[i]) == 0) {
+            return true;
+        }
+    }
     return false;
 }
 #endif
 
-static void refuse_redirected_regular_stdio(const char *workdir, const struct strlist *extra_writable_dirs) {
+static void refuse_redirected_regular_stdio(const char *workdir,
+                                            const struct strlist *extra_writable_dirs,
+                                            const struct strlist *extra_writable_files) {
 #if defined(F_GETPATH)
     const char *override = getenv("SBBASH_ALLOW_STDIO_REDIRECTS");
     if (override && override[0] == '1' && override[1] == '\0') {
@@ -494,7 +564,7 @@ static void refuse_redirected_regular_stdio(const char *workdir, const struct st
             final_path = resolved;
         }
 
-        if (!path_is_within_allowed_dirs(final_path, workdir, extra_writable_dirs)) {
+        if (!path_is_allowed_write_target(final_path, workdir, extra_writable_dirs, extra_writable_files)) {
             dief("fd %d is redirected to %s outside allowed writable directories; refusing to start (set SBBASH_ALLOW_STDIO_REDIRECTS=1 to override)",
                  fd,
                  final_path);
@@ -503,12 +573,12 @@ static void refuse_redirected_regular_stdio(const char *workdir, const struct st
 #else
     (void)workdir;
     (void)extra_writable_dirs;
+    (void)extra_writable_files;
 #endif
 }
 
 static void sanitize_env(const char *workdir,
-                         const char *sandbox_home,
-                         const char *sandbox_tmp,
+                         const char *tmpdir,
                          const char *histfile,
                          const char *host_home,
                          const char *user_name,
@@ -532,9 +602,15 @@ static void sanitize_env(const char *workdir,
 
     setenv("PATH", path, 1);
     setenv("PWD", workdir, 1);
-    setenv("HOME", sandbox_home, 1);
-    setenv("TMPDIR", sandbox_tmp, 1);
-    setenv("HISTFILE", histfile, 1);
+    if (host_home && host_home[0] != '\0') {
+        setenv("HOME", host_home, 1);
+    }
+    setenv("TMPDIR", tmpdir, 1);
+    if (histfile) {
+        setenv("HISTFILE", histfile, 1);
+    } else {
+        unsetenv("HISTFILE");
+    }
     setenv("SHELL", shell_path, 1);
     setenv("SBBASH_WORKDIR", workdir, 1);
     if (shell_is_bash(shell_path)) {
@@ -587,7 +663,15 @@ static void append_profile_subpath(struct strbuf *buf, const char *path) {
     free(escaped);
 }
 
-static char *build_profile_text(const struct strlist *extra_writable_dirs) {
+static void append_profile_literal(struct strbuf *buf, const char *path) {
+    char *escaped = escape_sandbox_string(path);
+    strbuf_appendf(buf, "    (literal \"%s\")\n", escaped);
+    free(escaped);
+}
+
+static char *build_profile_text(const struct strlist *extra_writable_dirs,
+                                const struct strlist *extra_writable_files,
+                                bool allow_histfile) {
     struct strbuf buf = {0};
     strbuf_append(&buf,
                   "(version 1)\n"
@@ -609,16 +693,42 @@ static char *build_profile_text(const struct strlist *extra_writable_dirs) {
                   "    (literal \"/dev/tty\")\n"
                   "    (literal (param \"TTY\")))\n"
                   "\n"
-                  "; the writable places are rooted under the launch directory plus any configured extras\n"
+                  "; the writable places are rooted under the launch directory and any configured extras\n"
                   "(allow file-write*\n"
-                  "    (subpath (param \"WORKDIR\"))\n"
-                  "    (subpath (param \"HOME\"))\n"
-                  "    (subpath (param \"TMPDIR\"))\n");
+                  "    (subpath (param \"WORKDIR\"))\n");
     for (size_t i = 0; i < extra_writable_dirs->len; ++i) {
         append_profile_subpath(&buf, extra_writable_dirs->items[i]);
     }
     strbuf_append(&buf, ")\n");
+    if (allow_histfile || extra_writable_files->len > 0) {
+        strbuf_append(&buf, "(allow file-write*\n");
+        if (allow_histfile) {
+            strbuf_append(&buf, "    (literal (param \"HISTFILE\"))\n");
+        }
+        for (size_t i = 0; i < extra_writable_files->len; ++i) {
+            append_profile_literal(&buf, extra_writable_files->items[i]);
+        }
+        strbuf_append(&buf, ")\n");
+    }
     return buf.data;
+}
+
+static void set_sandbox_param_or_die(sandbox_params_t params, const char *key, const char *value) {
+    if (sandbox_set_param(params, key, value) != 0) {
+        die_errno("sandbox_set_param");
+    }
+}
+
+static sandbox_profile_t compile_sandbox_profile_or_die(const char *profile_text, sandbox_params_t params) {
+    char *errorbuf = NULL;
+    sandbox_profile_t profile = sandbox_compile_string(profile_text, params, &errorbuf);
+    if (!profile) {
+        if (errorbuf && errorbuf[0] != '\0') {
+            dief("%s", errorbuf);
+        }
+        dief("sandbox profile compilation failed");
+    }
+    return profile;
 }
 
 int main(int argc, char **argv) {
@@ -633,10 +743,7 @@ int main(int argc, char **argv) {
     const char *pw_shell = (pw && pw->pw_shell && pw->pw_shell[0] != '\0') ? pw->pw_shell : NULL;
     const char *shell_path = pick_shell(getenv("SHELL"), pw_shell);
     const char *xdg_config_home = getenv("XDG_CONFIG_HOME");
-
-    if (access("/usr/bin/sandbox-exec", X_OK) != 0) {
-        dief("/usr/bin/sandbox-exec is unavailable on this macOS installation");
-    }
+    const char *xdg_config_dirs = getenv("XDG_CONFIG_DIRS");
 
     char cwd_buf[PATH_MAX];
     if (!getcwd(cwd_buf, sizeof(cwd_buf))) {
@@ -654,40 +761,28 @@ int main(int argc, char **argv) {
     }
 
     struct strlist raw_extra_writable_dirs = {0};
-    load_config_writable_dirs(&raw_extra_writable_dirs, host_home, xdg_config_home);
+    struct strlist raw_optional_writable_dirs = {0};
+    load_system_config_writable_dirs(&raw_extra_writable_dirs, &raw_optional_writable_dirs, xdg_config_dirs);
+    load_user_config_writable_dirs(&raw_extra_writable_dirs, &raw_optional_writable_dirs, host_home, xdg_config_home);
 
     int arg_index = 1;
     bool force_command = false;
     parse_cli_options(argc, argv, &raw_extra_writable_dirs, &arg_index, &force_command);
 
     struct strlist extra_writable_dirs = {0};
-    resolve_writable_dirs(&extra_writable_dirs, &raw_extra_writable_dirs, host_home);
+    struct strlist extra_writable_files = {0};
+    resolve_writable_paths(&extra_writable_dirs, &extra_writable_files, &raw_extra_writable_dirs, host_home, false);
+    resolve_writable_paths(&extra_writable_dirs, &extra_writable_files, &raw_optional_writable_dirs, host_home, true);
 
-    refuse_redirected_regular_stdio(workdir, &extra_writable_dirs);
+    refuse_redirected_regular_stdio(workdir, &extra_writable_dirs, &extra_writable_files);
 
-    char *sandbox_home = path_join(workdir, ".sbbash-home");
-    char *sandbox_tmp = path_join(workdir, ".sbbash-tmp");
-    bool home_ok = try_ensure_dir(sandbox_home, 0700);
-    bool tmp_ok = try_ensure_dir(sandbox_tmp, 0700);
-
-    if (!home_ok) {
-        free(sandbox_home);
-        sandbox_home = xstrdup(workdir);
-    }
-    if (!tmp_ok) {
-        free(sandbox_tmp);
-        sandbox_tmp = xstrdup(workdir);
-    }
-
+    const char *tmpdir = "/tmp";
     char *histfile = NULL;
-    const char *histname = history_file_name_for_shell(shell_path);
-    if (strcmp(sandbox_home, workdir) == 0) {
-        histfile = path_join(workdir, ".sbbash_history");
-    } else {
-        histfile = path_join(sandbox_home, histname);
+    if (host_home && host_home[0] != '\0') {
+        histfile = path_join(host_home, history_file_name_for_shell(shell_path));
     }
 
-    sanitize_env(workdir, sandbox_home, sandbox_tmp, histfile, host_home, user_name, shell_path);
+    sanitize_env(workdir, tmpdir, histfile, host_home, user_name, shell_path);
     close_extra_fds();
 
     const char *tty_path = ttyname(STDIN_FILENO);
@@ -701,15 +796,17 @@ int main(int argc, char **argv) {
         tty_path = "/dev/tty";
     }
 
-    char *def_workdir = xmalloc(strlen("WORKDIR=") + strlen(workdir) + 1);
-    char *def_home = xmalloc(strlen("HOME=") + strlen(sandbox_home) + 1);
-    char *def_tmp = xmalloc(strlen("TMPDIR=") + strlen(sandbox_tmp) + 1);
-    char *def_tty = xmalloc(strlen("TTY=") + strlen(tty_path) + 1);
-    char *profile = build_profile_text(&extra_writable_dirs);
-    sprintf(def_workdir, "WORKDIR=%s", workdir);
-    sprintf(def_home, "HOME=%s", sandbox_home);
-    sprintf(def_tmp, "TMPDIR=%s", sandbox_tmp);
-    sprintf(def_tty, "TTY=%s", tty_path);
+    char *profile = build_profile_text(&extra_writable_dirs, &extra_writable_files, histfile != NULL);
+    sandbox_params_t params = sandbox_create_params();
+    if (!params) {
+        die_errno("sandbox_create_params");
+    }
+    set_sandbox_param_or_die(params, "WORKDIR", workdir);
+    set_sandbox_param_or_die(params, "TTY", tty_path);
+    if (histfile) {
+        set_sandbox_param_or_die(params, "HISTFILE", histfile);
+    }
+    sandbox_profile_t compiled_profile = compile_sandbox_profile_or_die(profile, params);
 
     if (force_command && arg_index == argc) {
         dief("`--` requires a command to run");
@@ -726,41 +823,39 @@ int main(int argc, char **argv) {
         run_argc = argc - arg_index;
     }
 
-    int total = 11 + run_argc + 1;
-    char **child_argv = calloc((size_t)total, sizeof(char *));
-    if (!child_argv) {
+    char **run_argv = calloc((size_t)run_argc + 1, sizeof(char *));
+    if (!run_argv) {
         dief("out of memory");
     }
 
     int i = 0;
-    child_argv[i++] = "/usr/bin/sandbox-exec";
-    child_argv[i++] = "-D";
-    child_argv[i++] = def_workdir;
-    child_argv[i++] = "-D";
-    child_argv[i++] = def_home;
-    child_argv[i++] = "-D";
-    child_argv[i++] = def_tmp;
-    child_argv[i++] = "-D";
-    child_argv[i++] = def_tty;
-    child_argv[i++] = "-p";
-    child_argv[i++] = profile;
-
+    const char *exec_path = NULL;
     if (interactive_shell) {
-        child_argv[i++] = (char *)shell_path;
-        child_argv[i++] = "-i";
+        exec_path = shell_path;
+        run_argv[i++] = login_shell_argv0(shell_path);
+        run_argv[i++] = "-i";
     } else if (shell_arg_mode) {
-        child_argv[i++] = (char *)shell_path;
+        exec_path = shell_path;
+        run_argv[i++] = (char *)shell_path;
         for (int j = arg_index; j < argc; ++j) {
-            child_argv[i++] = argv[j];
+            run_argv[i++] = argv[j];
         }
     } else {
+        exec_path = argv[arg_index];
         for (int j = arg_index; j < argc; ++j) {
-            child_argv[i++] = argv[j];
+            run_argv[i++] = argv[j];
         }
     }
-    child_argv[i] = NULL;
+    run_argv[i] = NULL;
 
-    execv(child_argv[0], child_argv);
-    die_errno("execv(/usr/bin/sandbox-exec)");
+    if (sandbox_apply(compiled_profile) != 0) {
+        die_errno("sandbox_apply");
+    }
+
+    sandbox_free_params(params);
+    sandbox_free_profile(compiled_profile);
+
+    execvp(exec_path, run_argv);
+    dief("execvp(%s): %s", exec_path, strerror(errno));
     return 111;
 }

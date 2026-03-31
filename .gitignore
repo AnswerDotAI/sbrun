@@ -5,3 +5,5 @@ tags
 .sbbash-smoke-*
 *.o
 sbbash
+.pytest_cache/
+__pycache__/

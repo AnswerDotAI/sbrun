@@ -1,18 +1,18 @@
 # sbbash
 
-`sbbash` launches commands under macOS `sandbox-exec` and only allows writes
+`sbbash` launches commands under the macOS sandbox and only allows writes
 beneath the directory where `sbbash` was started.
 
 ## Properties
 
 - reads are broadly allowed, writes are confined to the launch directory tree
-- with no arguments, `sbbash` launches your `$SHELL` as an interactive shell
+- with no arguments, `sbbash` launches your `$SHELL` as an interactive login shell
 - with arguments, `sbbash` runs that command directly, preserving flags and argv
 - if the first argument starts with `-`, `sbbash` passes those flags to your shell
-- `-w DIR` or `--writable DIR` adds an extra writable directory; you can repeat it
-- `HOME` becomes `./.sbbash-home` when that directory can be created
-- `TMPDIR` becomes `./.sbbash-tmp` when that directory can be created
-- existing `.sbbash-home` and `.sbbash-tmp` paths must be real directories, not symlinks
+- `-w PATH` or `--writable PATH` adds an extra writable file or directory; you can repeat it
+- `HOME` stays your real home directory when one is available
+- `TMPDIR` is set to `/tmp`
+- the shell's normal history file is writable by default
 - extra file descriptors `>= 3` are closed before entering the sandbox
 - on macOS, if stdout or stderr is redirected to a regular file outside the
   allowed writable directories, `sbbash` refuses to start unless you set
@@ -25,6 +25,19 @@ make
 sudo make install
 ```
 
+Run the local verification suite with:
+
+```sh
+pytest -q
+```
+
+The compiled `sbbash` binary applies the sandbox profile directly through
+`libsandbox`.
+By default the Makefile targets macOS 13.0 on the build architecture; override
+`MACOSX_DEPLOYMENT_TARGET` if you need a different minimum version.
+`make install` also installs a default global allow-list config to
+`$(PREFIX)/etc/xdg/sbbash/config` if one does not already exist.
+
 No-build Perl variant:
 
 ```sh
@@ -34,7 +47,7 @@ sudo make install-perl
 ```
 
 `sbbash.pl` mirrors the same CLI and config format as `sbbash`, but uses the
-system Perl runtime instead of a compiled binary.
+system Perl runtime and `/usr/bin/sandbox-exec` instead of a compiled binary.
 
 ## Use
 
@@ -96,23 +109,52 @@ sbbash --help
 
 ## Config
 
-Global extra writable directories can be set in:
+Global extra writable paths can be set in:
 
+- `$XDG_CONFIG_DIRS/.../sbbash/config`
 - `$XDG_CONFIG_HOME/sbbash/config`
 - `~/.config/sbbash/config` when `XDG_CONFIG_HOME` is unset
 
-Use one `writable_dir=...` entry per line:
+Use one entry per line:
 
 ```ini
-writable_dir=/tmp
-writable_dir=~/scratch
+writable_path=/tmp
+writable_path=~/scratch
+optional_writable_path=~/.cache
 ```
 
-Configured directories and `-w/--writable` directories are combined.
+`writable_path=...` is required and errors if the path does not resolve to an
+existing regular file or directory.
+`optional_writable_path=...` is ignored when the path does not resolve to an
+existing regular file or directory, which is useful for shared default configs.
+For compatibility, `writable_dir=...` and `optional_writable_dir=...` are also
+accepted.
+
+Configured paths and `-w/--writable` paths are combined. System config is
+loaded first, then user config, then CLI flags.
+
+The installed default global config includes a practical allow-list of common
+user state/cache locations such as:
+
+- `/tmp`
+- `~/.config`
+- `~/.cache`
+- `~/.local/share`
+- `~/.local/state`
+- `~/.ipython`
+- `~/.jupyter`
+- `~/Library/Caches`
+
+Edit the global config or your user config to tighten or extend that list.
 
 ## Notes
 
-- This relies on Apple `sandbox-exec`, which Apple marks deprecated.
+- The compiled `sbbash` binary applies the sandbox profile directly through
+  `libsandbox`; `sbbash.pl` shells out through `/usr/bin/sandbox-exec`.
+- `sbbash` is now optimized for "real home, restricted writes" rather than
+  "fake home". That means shell startup and config discovery behave normally,
+  but writes still need to land in the work tree, the installed allow-list,
+  the shell's normal history file, or paths explicitly added with `-w`.
 - The sandbox only blocks acquiring new writable resources. If the parent shell
   already gave the process an open writable fd, that fd can still be used.
   `sbbash` mitigates this by closing fds `>= 3` and by rejecting regular-file
