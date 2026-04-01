@@ -14,10 +14,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.x"
 
@@ -40,6 +40,7 @@ jobs:
           cp sbrun sbrun.pl README.md sbrun.default.conf VERSION dist/pkg/
           tar -C dist/pkg -czf "dist/${asset}" .
           shasum -a 256 "dist/${asset}" > dist/SHA256SUMS
+          printf 'RELEASE_ASSET=%s\n' "dist/${asset}" >> "$GITHUB_ENV"
 
       - name: Publish GitHub release
         env:
@@ -47,7 +48,7 @@ jobs:
         run: |
           set -euo pipefail
           tag="${GITHUB_REF_NAME}"
-          assets=(dist/*)
+          assets=("${RELEASE_ASSET}" dist/SHA256SUMS)
           if gh release view "${tag}" >/dev/null 2>&1; then
             gh release upload "${tag}" "${assets[@]}" --clobber
           else
