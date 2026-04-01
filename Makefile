@@ -14,7 +14,7 @@ CPPFLAGS += -DSBRUN_VERSION='"$(VERSION)"'
 
 all: sbrun
 
-sbrun: sbrun.c
+sbrun: sbrun.c VERSION
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $< $(LDLIBS)
 
 install-config: sbrun.default.conf
