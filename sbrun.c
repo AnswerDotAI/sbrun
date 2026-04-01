@@ -30,8 +30,41 @@
 #endif
 
 #ifndef SBRUN_VERSION
-#define SBRUN_VERSION "0.1.0"
+#define SBRUN_VERSION "0.0.2"
 #endif
+
+static const char *DEFAULT_USER_CONFIG =
+    "# Default writable allow-list for sbrun.\n"
+    "#\n"
+    "# These entries are intentionally narrower than \"your whole home directory\":\n"
+    "# they try to cover common state, cache, and notebook/tool locations while\n"
+    "# still avoiding broad write access to arbitrary files under $HOME.\n"
+    "#\n"
+    "# Optional paths that do not resolve to directories are ignored.\n"
+    "# Add project- or tool-specific paths here or via -w/--writable.\n"
+    "#\n"
+    "# User config:\n"
+    "#   $XDG_CONFIG_HOME/sbrun/config\n"
+    "#   ~/.config/sbrun/config\n"
+    "\n"
+    "optional_writable_dir=/tmp\n"
+    "optional_writable_dir=~/.cache\n"
+    "optional_writable_dir=~/.config\n"
+    "optional_writable_dir=~/.local/share\n"
+    "optional_writable_dir=~/.local/state\n"
+    "optional_writable_dir=~/.ipython\n"
+    "optional_writable_dir=~/.jupyter\n"
+    "optional_writable_dir=~/.matplotlib\n"
+    "optional_writable_dir=~/.npm\n"
+    "optional_writable_dir=~/.pnpm-store\n"
+    "optional_writable_dir=~/.cargo\n"
+    "optional_writable_dir=~/.rustup\n"
+    "optional_writable_dir=~/.conda\n"
+    "optional_writable_dir=~/Library/Caches\n"
+    "optional_writable_dir=~/Library/Logs\n"
+    "optional_writable_dir=~/Library/Jupyter\n"
+    "optional_writable_dir=~/Library/Python\n"
+    "optional_writable_dir=~/Library/Application Support/Jupyter\n";
 
 typedef void *sandbox_params_t;
 typedef void *sandbox_profile_t;
@@ -350,6 +383,63 @@ static char *config_path(const char *host_home, const char *xdg_config_home) {
     char *path = path_join(config_dir, "config");
     free(config_dir);
     return path;
+}
+
+static void ensure_directory_path(const char *path) {
+    if (!path || path[0] == '\0') {
+        return;
+    }
+
+    char *copy = xstrdup(path);
+    for (char *p = copy + 1; *p; ++p) {
+        if (*p != '/') {
+            continue;
+        }
+        *p = '\0';
+        if (mkdir(copy, 0700) != 0 && errno != EEXIST) {
+            die_errno(copy);
+        }
+        *p = '/';
+    }
+    if (mkdir(copy, 0700) != 0 && errno != EEXIST) {
+        die_errno(copy);
+    }
+    free(copy);
+}
+
+static void ensure_user_config_exists(const char *host_home, const char *xdg_config_home) {
+    char *path = config_path(host_home, xdg_config_home);
+    if (!path) {
+        return;
+    }
+    if (access(path, F_OK) == 0) {
+        free(path);
+        return;
+    }
+    if (errno != ENOENT) {
+        die_errno(path);
+    }
+
+    char *dir = xstrdup(path);
+    char *slash = strrchr(dir, '/');
+    if (!slash) {
+        free(dir);
+        free(path);
+        return;
+    }
+    *slash = '\0';
+    ensure_directory_path(dir);
+    free(dir);
+
+    FILE *fp = fopen(path, "w");
+    if (!fp) {
+        free(path);
+        return;
+    }
+    if (fputs(DEFAULT_USER_CONFIG, fp) == EOF || fclose(fp) != 0) {
+        die_errno(path);
+    }
+    free(path);
 }
 
 static void load_config_writable_dirs_from_path(struct strlist *dirs, struct strlist *optional_dirs, const char *path) {
@@ -729,6 +819,7 @@ static void sanitize_env(const char *workdir,
     }
     setenv("SHELL", shell_path, 1);
     setenv("SBBASH_WORKDIR", workdir, 1);
+    setenv("SBRUN_ACTIVE", "1", 1);
     if (shell_is_bash(shell_path)) {
         setenv("BASH_SILENCE_DEPRECATION_WARNING", "1", 1);
     } else {
@@ -856,6 +947,11 @@ static sandbox_profile_t compile_sandbox_profile_or_die(const char *profile_text
 }
 
 int main(int argc, char **argv) {
+    struct passwd *pw = getpwuid(getuid());
+    const char *host_home = pw ? pw->pw_dir : NULL;
+    const char *xdg_config_home = getenv("XDG_CONFIG_HOME");
+    ensure_user_config_exists(host_home, xdg_config_home);
+
     if (cli_requests_help(argc, argv)) {
         print_help(stdout, base_name(argv[0]));
         return 0;
@@ -865,12 +961,9 @@ int main(int argc, char **argv) {
         return 0;
     }
 
-    struct passwd *pw = getpwuid(getuid());
     const char *user_name = pw ? pw->pw_name : NULL;
-    const char *host_home = pw ? pw->pw_dir : NULL;
     const char *pw_shell = (pw && pw->pw_shell && pw->pw_shell[0] != '\0') ? pw->pw_shell : NULL;
     const char *shell_path = pick_shell(getenv("SHELL"), pw_shell);
-    const char *xdg_config_home = getenv("XDG_CONFIG_HOME");
     const char *xdg_config_dirs = getenv("XDG_CONFIG_DIRS");
 
     char cwd_buf[PATH_MAX];
@@ -892,6 +985,7 @@ int main(int argc, char **argv) {
     struct strlist raw_optional_writable_dirs = {0};
     struct strlist envdir_vars = {0};
     load_system_config_writable_dirs(&raw_extra_writable_dirs, &raw_optional_writable_dirs, xdg_config_dirs);
+    ensure_user_config_exists(host_home, xdg_config_home);
     load_user_config_writable_dirs(&raw_extra_writable_dirs, &raw_optional_writable_dirs, host_home, xdg_config_home);
 
     int arg_index = 1;

@@ -10,6 +10,39 @@ use POSIX qw(_SC_OPEN_MAX sysconf ttyname);
 use constant F_GETPATH => 50;
 use constant DEFAULT_XDG_CONFIG_DIRS => "/opt/homebrew/etc/xdg:/usr/local/etc/xdg:/etc/xdg";
 use constant BUILTIN_VERSION => "0.0.2";
+use constant DEFAULT_USER_CONFIG => <<'EOF';
+# Default writable allow-list for sbrun.
+#
+# These entries are intentionally narrower than "your whole home directory":
+# they try to cover common state, cache, and notebook/tool locations while
+# still avoiding broad write access to arbitrary files under $HOME.
+#
+# Optional paths that do not resolve to directories are ignored.
+# Add project- or tool-specific paths here or via -w/--writable.
+#
+# User config:
+#   $XDG_CONFIG_HOME/sbrun/config
+#   ~/.config/sbrun/config
+
+optional_writable_dir=/tmp
+optional_writable_dir=~/.cache
+optional_writable_dir=~/.config
+optional_writable_dir=~/.local/share
+optional_writable_dir=~/.local/state
+optional_writable_dir=~/.ipython
+optional_writable_dir=~/.jupyter
+optional_writable_dir=~/.matplotlib
+optional_writable_dir=~/.npm
+optional_writable_dir=~/.pnpm-store
+optional_writable_dir=~/.cargo
+optional_writable_dir=~/.rustup
+optional_writable_dir=~/.conda
+optional_writable_dir=~/Library/Caches
+optional_writable_dir=~/Library/Logs
+optional_writable_dir=~/Library/Jupyter
+optional_writable_dir=~/Library/Python
+optional_writable_dir=~/Library/Application Support/Jupyter
+EOF
 
 my $prog_name = do {
     my $name = $0;
@@ -164,6 +197,24 @@ sub config_path {
     return path_join(path_join(path_join($host_home, ".config"), "sbrun"), "config")
         if defined($host_home) && $host_home ne "";
     return undef;
+}
+
+sub ensure_user_config_exists {
+    my ($host_home, $xdg_config_home) = @_;
+    my $path = config_path($host_home, $xdg_config_home);
+    return if !defined($path) || -e $path;
+
+    my $dir = $path;
+    $dir =~ s{/[^/]+\z}{};
+    if (!-d $dir) {
+        require File::Path;
+        File::Path::make_path($dir, { mode => 0700 });
+    }
+
+    if (open my $fh, ">", $path) {
+        print {$fh} DEFAULT_USER_CONFIG or die_errno($path);
+        close $fh or die_errno($path);
+    }
 }
 
 sub default_global_config_dirs {
@@ -426,6 +477,7 @@ sub sanitize_env {
     }
     $ENV{SHELL} = $shell_path;
     $ENV{SBBASH_WORKDIR} = $workdir;
+    $ENV{SBRUN_ACTIVE} = "1";
 
     if (shell_is_bash($shell_path)) {
         $ENV{BASH_SILENCE_DEPRECATION_WARNING} = "1";
@@ -505,6 +557,14 @@ sub exec_sandbox {
     exec(@argv) or die_errno("exec(/usr/bin/sandbox-exec)");
 }
 
+my @pw = getpwuid($<);
+my $user_name = defined($pw[0]) ? $pw[0] : undef;
+my $host_home = defined($pw[7]) ? $pw[7] : undef;
+my $pw_shell = defined($pw[8]) ? $pw[8] : undef;
+my $shell_path = pick_shell($ENV{SHELL}, $pw_shell);
+my $xdg_config_home = $ENV{XDG_CONFIG_HOME};
+ensure_user_config_exists($host_home, $xdg_config_home);
+
 if (cli_requests_help(@ARGV)) {
     print_help(*STDOUT);
     exit 0;
@@ -513,13 +573,6 @@ if (cli_requests_version(@ARGV)) {
     print_version(*STDOUT);
     exit 0;
 }
-
-my @pw = getpwuid($<);
-my $user_name = defined($pw[0]) ? $pw[0] : undef;
-my $host_home = defined($pw[7]) ? $pw[7] : undef;
-my $pw_shell = defined($pw[8]) ? $pw[8] : undef;
-my $shell_path = pick_shell($ENV{SHELL}, $pw_shell);
-my $xdg_config_home = $ENV{XDG_CONFIG_HOME};
 
 -x "/usr/bin/sandbox-exec" or dief("/usr/bin/sandbox-exec is unavailable on this macOS installation");
 

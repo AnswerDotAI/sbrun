@@ -1,2 +1,29 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sbrun"
+dynamic = ["version"]
+description = "Run commands under the macOS sandbox with writes confined to the working tree"
+readme = "README.md"
+requires-python = ">=3.9"
+classifiers = [
+  "Environment :: Console",
+  "Operating System :: MacOS :: MacOS X",
+  "Programming Language :: Python :: 3",
+  "Topic :: Security",
+  "Topic :: Utilities",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.dynamic]
+version = {attr = "sbrun.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [tool.chkstyle]
 disabled = true

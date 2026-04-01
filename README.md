@@ -2,6 +2,45 @@
 
 `sbrun` launches commands under the macOS sandbox and only allows writes beneath the directory where `sbrun` was started.
 
+## Install
+
+Install the latest release:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/AnswerDotAI/sbrun/main/install.sh | bash
+```
+
+Install from PyPI into a Python environment:
+
+```sh
+pip install sbrun
+```
+
+The installer:
+
+- resolves the latest macOS arm64 release tarball via `https://latest.fast.ai/latest/AnswerDotAI/sbrun/.gz`
+- downloads that tarball and verifies it with `SHA256SUMS`
+- installs `sbrun` and `sbrun.pl` into `bin`
+- installs the default user config to `$XDG_CONFIG_HOME/sbrun/config` or `~/.config/sbrun/config` only if no config is already present
+- defaults to `/opt/homebrew` when it exists, otherwise `/usr/local`
+
+The PyPI wheel is macOS arm64 only. It installs the native `sbrun` binary into
+your Python environment's `bin/`. On first run, `sbrun` seeds
+`$XDG_CONFIG_HOME/sbrun/config` or `~/.config/sbrun/config` with the built-in
+default config if you do not already have one.
+
+You can override the install location:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/AnswerDotAI/sbrun/main/install.sh | PREFIX=/usr/local bash
+```
+
+You can also pin a release:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/AnswerDotAI/sbrun/main/install.sh | SBRUN_INSTALL_VERSION=0.1.0 bash
+```
+
 ## Use
 
 Interactive shell:
@@ -87,10 +126,15 @@ sbrun --version
 - `HOME` stays your real home directory when one is available
 - `TMPDIR` is set to `/tmp`
 - the shell's normal history file is writable by default
+- `SBRUN_ACTIVE=1` is exported in the child environment so shells can show a sandbox indicator if desired
 - extra file descriptors `>= 3` are closed before entering the sandbox
 - on macOS, if stdout or stderr is redirected to a regular file outside the
   allowed writable paths, `sbrun` refuses to start unless you set
   `SBBASH_ALLOW_STDIO_REDIRECTS=1`
+
+For example, you can use `SBRUN_ACTIVE` in your shell prompt logic instead of
+having `sbrun` override `PS1`, `PROMPT_COMMAND`, or similar shell-specific
+customizations.
 
 Development, build, test, and release notes live in `DEV.md`.
 

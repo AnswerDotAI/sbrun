@@ -46,6 +46,10 @@ Run the local verification suite with:
 pytest -q
 ```
 
+Use plain `pytest -q` here. Avoid wrapping it with extra env prefixes unless
+there is a concrete need, since that can trigger unnecessary sandbox approval
+prompts.
+
 The test suite covers:
 
 - `make`, strict C compile, and `perl -c`
@@ -74,7 +78,8 @@ Bump the patch version with:
 tools/bump.sh
 ```
 
-That updates `VERSION` and the Perl fallback version string together.
+That updates `VERSION`, the Perl fallback version string, and
+`src/sbrun/__init__.py` together.
 
 ## Release
 
@@ -91,6 +96,9 @@ The workflow:
 - uploads a versioned tarball like `sbrun-v0.1.0-macos-arm64.tar.gz`
 - uploads `SHA256SUMS`
 
+`install.sh` expects the release assets to keep that versioned tarball naming
+scheme and to publish a matching `SHA256SUMS`.
+
 If a release for the tag already exists, the workflow updates the assets with
 `gh release upload --clobber`.
 
@@ -102,6 +110,27 @@ For the local release flow:
 
 `tools/release.sh` reads `VERSION`, creates an annotated `vX.Y.Z` tag, pushes
 the current `HEAD`, and then pushes the tag.
+
+## PyPI
+
+The repo also builds a macOS arm64 wheel for PyPI using setuptools.
+
+- the package version comes from `src/sbrun/__init__.py` via dynamic metadata
+- the wheel installs the native `sbrun` binary into the wheel `scripts` payload,
+  so `pip install sbrun` puts the real executable in the environment `bin/`
+- `sbrun` itself seeds `$XDG_CONFIG_HOME/sbrun/config` or `~/.config/sbrun/config`
+  on first run if needed
+- the wheel is tagged `py3-none-macosx_13_0_arm64` by default, matching
+  `MACOSX_DEPLOYMENT_TARGET`
+
+Publish with:
+
+```sh
+python tools/pypi.py
+```
+
+That builds a wheel locally into `py-dist/`, checks it with `twine`, and uploads
+it. It assumes your PyPI credentials or token configuration is already set up.
 
 ## Notes
 

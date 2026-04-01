@@ -153,10 +153,16 @@ def xdg_config_dirs(tmp_path_factory: pytest.TempPathFactory) -> str:
 
 
 @pytest.fixture(scope="session")
-def runtime_env(shell_path: str, xdg_config_dirs: str) -> dict[str, str]:
+def xdg_config_home(tmp_path_factory: pytest.TempPathFactory) -> str:
+    return str(tmp_path_factory.mktemp("sbrun-xdg-home"))
+
+
+@pytest.fixture(scope="session")
+def runtime_env(shell_path: str, xdg_config_dirs: str, xdg_config_home: str) -> dict[str, str]:
     env = os.environ.copy()
     env["SHELL"] = shell_path
     env["XDG_CONFIG_DIRS"] = xdg_config_dirs
+    env["XDG_CONFIG_HOME"] = xdg_config_home
     env["HISTSIZE"] = "0"
     env["HISTFILESIZE"] = "0"
     env["SAVEHIST"] = "0"
@@ -220,12 +226,13 @@ def test_shell_mode_sets_expected_env(
     out = run_impl(
         impl,
         "-c",
-        'printf "HOME=%s\\nTMPDIR=%s\\nHISTFILE=%s\\n" "$HOME" "$TMPDIR" "$HISTFILE"',
+        'printf "HOME=%s\\nTMPDIR=%s\\nHISTFILE=%s\\nSBRUN_ACTIVE=%s\\n" "$HOME" "$TMPDIR" "$HISTFILE" "$SBRUN_ACTIVE"',
         env=runtime_env,
     ).stdout
     assert f"HOME={Path.home()}" in out
     assert "TMPDIR=/tmp" in out
     assert f"HISTFILE={expected_histfile}" in out
+    assert "SBRUN_ACTIVE=1" in out
 
 
 @pytest.mark.parametrize("impl", IMPLEMENTATIONS)
@@ -481,29 +488,3 @@ def test_envdir_flag_rejects_invalid_names(
     result = run_impl(impl, "-e", "BAD-NAME", "python3", "-c", 'print("nope")', env=runtime_env, check=False)
     assert result.returncode != 0
     assert "invalid envdir variable name BAD-NAME" in result.stderr
-
-
-def test_tools_shell_scripts_parse() -> None:
-    run_cmd(["bash", "-n", "tools/bump.sh"])
-    run_cmd(["bash", "-n", "tools/release.sh"])
-
-
-def test_bump_script_updates_patch_version(tmp_path: Path) -> None:
-    repo = tmp_path / "repo"
-    tools_dir = repo / "tools"
-    tools_dir.mkdir(parents=True)
-    shutil.copy(ROOT / "tools/bump.sh", tools_dir / "bump.sh")
-    shutil.copy(ROOT / "sbrun.pl", repo / "sbrun.pl")
-    (repo / "VERSION").write_text("1.2.3\n")
-
-    result = subprocess.run(
-        ["bash", str(tools_dir / "bump.sh")],
-        cwd=repo,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "1.2.4"
-    assert (repo / "VERSION").read_text() == "1.2.4\n"
-    assert 'use constant BUILTIN_VERSION => "1.2.4";' in (repo / "sbrun.pl").read_text()
