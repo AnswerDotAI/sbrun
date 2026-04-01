@@ -3,6 +3,7 @@ tags
 .sbrun-tmp/
 .sbrun_history
 .sbrun-smoke-*
+.sbrun/
 *.o
 sbrun
 .pytest_cache/

@@ -3,12 +3,14 @@ CPPFLAGS ?=
 CFLAGS ?= -O2 -Wall -Wextra -std=c11
 LDFLAGS ?=
 LDLIBS ?= -lsandbox
+VERSION := $(shell cat VERSION)
 MACOSX_DEPLOYMENT_TARGET ?= 13.0
 export MACOSX_DEPLOYMENT_TARGET
 PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
 XDGCONFIGDIR ?= $(PREFIX)/etc/xdg
 CPPFLAGS += -DSBBASH_DEFAULT_XDG_CONFIG_DIRS='"$(XDGCONFIGDIR):/opt/homebrew/etc/xdg:/usr/local/etc/xdg:/etc/xdg"'
+CPPFLAGS += -DSBRUN_VERSION='"$(VERSION)"'
 
 all: sbrun
 

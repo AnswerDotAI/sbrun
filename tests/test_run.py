@@ -16,6 +16,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONF = ROOT / "sbrun.default.conf"
+VERSION_FILE = ROOT / "VERSION"
 IMPLEMENTATIONS = [
     pytest.param(ROOT / "sbrun", id="c"),
     pytest.param(ROOT / "sbrun.pl", id="perl"),
@@ -138,6 +139,11 @@ def expected_histfile(shell_path: str) -> str:
 
 
 @pytest.fixture(scope="session")
+def expected_version() -> str:
+    return VERSION_FILE.read_text().strip()
+
+
+@pytest.fixture(scope="session")
 def xdg_config_dirs(tmp_path_factory: pytest.TempPathFactory) -> str:
     config_root = tmp_path_factory.mktemp("sbrun-xdg")
     config_dir = config_root / "sbrun"
@@ -193,7 +199,15 @@ def test_install_config_copies_default(tmp_path: Path) -> None:
 def test_help_output(impl: Path, built_binary: Path, runtime_env: dict[str, str]) -> None:
     out = run_impl(impl, "--help", env=runtime_env).stdout
     assert "Usage:" in out
+    assert "--version" in out
     assert "--writable PATH" in out
+    assert "--envdir VAR" in out
+
+
+@pytest.mark.parametrize("impl", IMPLEMENTATIONS)
+def test_version_output(impl: Path, built_binary: Path, runtime_env: dict[str, str], expected_version: str) -> None:
+    out = run_impl(impl, "--version", env=runtime_env).stdout.strip()
+    assert out.endswith(f" {expected_version}")
 
 
 @pytest.mark.parametrize("impl", IMPLEMENTATIONS)
@@ -413,3 +427,62 @@ def test_writable_file_flag_allows_exact_file_and_redirect(
         assert allowed_file.read_text() == "redirected"
     finally:
         allowed_file.unlink(missing_ok=True)
+
+
+@pytest.mark.parametrize("impl", IMPLEMENTATIONS)
+def test_envdir_flag_sets_project_local_directories(
+    impl: Path,
+    built_binary: Path,
+    runtime_env: dict[str, str],
+) -> None:
+    stamp = time.time_ns()
+    var1 = f"SBRUN_TEST_ENVDIR_{stamp}"
+    var2 = f"SBRUN_TEST_ENVDIR_B_{stamp}"
+    envdir_root = ROOT / ".sbrun"
+    dir1 = envdir_root / var1
+    dir2 = envdir_root / var2
+    file1 = dir1 / "one.txt"
+    file2 = dir2 / "two.txt"
+    env = dict(runtime_env, TEST_ENV_NAMES=f"{var1}:{var2}", **{var1: "/tmp/original-one", var2: "/tmp/original-two"})
+    try:
+        out = run_impl(
+            impl,
+            "-e",
+            var1,
+            "--envdir",
+            var2,
+            "python3",
+            "-c",
+            'import os; from pathlib import Path; '
+            'names=os.environ["TEST_ENV_NAMES"].split(":"); '
+            'pairs=[f"{name}={Path(os.environ[name])}" for name in names]; '
+            '[(Path(os.environ[name]) / ("one.txt" if i == 0 else "two.txt")).write_text(name) for i, name in enumerate(names)]; '
+            'print("\\n".join(pairs))',
+            env=env,
+        ).stdout
+        assert f"{var1}={dir1}" in out
+        assert f"{var2}={dir2}" in out
+        assert file1.read_text() == var1
+        assert file2.read_text() == var2
+    finally:
+        file1.unlink(missing_ok=True)
+        file2.unlink(missing_ok=True)
+        dir1.rmdir() if dir1.exists() else None
+        dir2.rmdir() if dir2.exists() else None
+        envdir_root.rmdir() if envdir_root.exists() and not any(envdir_root.iterdir()) else None
+
+
+@pytest.mark.parametrize("impl", IMPLEMENTATIONS)
+def test_envdir_flag_rejects_invalid_names(
+    impl: Path,
+    built_binary: Path,
+    runtime_env: dict[str, str],
+) -> None:
+    result = run_impl(impl, "-e", "BAD-NAME", "python3", "-c", 'print("nope")', env=runtime_env, check=False)
+    assert result.returncode != 0
+    assert "invalid envdir variable name BAD-NAME" in result.stderr
+
+
+def test_tools_shell_scripts_parse() -> None:
+    run_cmd(["bash", "-n", "tools/bump.sh"])
+    run_cmd(["bash", "-n", "tools/release.sh"])

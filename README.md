@@ -1,53 +1,6 @@
 # sbrun
 
-`sbrun` launches commands under the macOS sandbox and only allows writes
-beneath the directory where `sbrun` was started.
-
-## Properties
-
-- reads are broadly allowed, writes are confined to the launch directory tree
-- with no arguments, `sbrun` launches your `$SHELL` as an interactive login shell
-- with arguments, `sbrun` runs that command directly, preserving flags and argv
-- if the first argument starts with `-`, `sbrun` passes those flags to your shell
-- `-w PATH` or `--writable PATH` adds an extra writable file or directory; you can repeat it
-- `HOME` stays your real home directory when one is available
-- `TMPDIR` is set to `/tmp`
-- the shell's normal history file is writable by default
-- extra file descriptors `>= 3` are closed before entering the sandbox
-- on macOS, if stdout or stderr is redirected to a regular file outside the
-  allowed writable directories, `sbrun` refuses to start unless you set
-  `SBBASH_ALLOW_STDIO_REDIRECTS=1`
-
-## Build
-
-```sh
-make
-sudo make install
-```
-
-Run the local verification suite with:
-
-```sh
-pytest -q
-```
-
-The compiled `sbrun` binary applies the sandbox profile directly through
-`libsandbox`.
-By default the Makefile targets macOS 13.0 on the build architecture; override
-`MACOSX_DEPLOYMENT_TARGET` if you need a different minimum version.
-`make install` also installs a default global allow-list config to
-`$(PREFIX)/etc/xdg/sbrun/config` if one does not already exist.
-
-No-build Perl variant:
-
-```sh
-chmod +x sbrun.pl
-./sbrun.pl python3 -c 'print(1)'
-sudo make install-perl
-```
-
-`sbrun.pl` mirrors the same CLI and config format as `sbrun`, but uses the
-system Perl runtime and `/usr/bin/sandbox-exec` instead of a compiled binary.
+`sbrun` launches commands under the macOS sandbox and only allows writes beneath the directory where `sbrun` was started.
 
 ## Use
 
@@ -70,6 +23,20 @@ Allow writes to an extra directory:
 ```sh
 cd /path/to/project
 sbrun -w /tmp python3 -c 'open("/tmp/sbrun-demo", "w").write("ok")'
+```
+
+Set specific environment variables to project-local directories:
+
+```sh
+cd /path/to/project
+sbrun -e IPYTHONDIR -e MPLCONFIGDIR ipython
+```
+
+Use the long form when you prefer:
+
+```sh
+cd /path/to/project
+sbrun --envdir=XDG_CACHE_HOME --envdir=XDG_STATE_HOME python3 app.py
 ```
 
 Run a shell snippet:
@@ -104,8 +71,28 @@ Help is available in both variants:
 
 ```sh
 sbrun --help
+sbrun --version
 ./sbrun.pl --help
+./sbrun.pl --version
 ```
+
+## Properties
+
+- reads are broadly allowed, writes are confined to the launch directory tree
+- with no arguments, `sbrun` launches your `$SHELL` as an interactive login shell
+- with arguments, `sbrun` runs that command directly, preserving flags and argv
+- if the first argument starts with `-`, `sbrun` passes those flags to your shell
+- `-w PATH` or `--writable PATH` adds an extra writable file or directory; you can repeat it
+- `-e VAR` or `--envdir VAR` sets `VAR` to `.sbrun/VAR`; you can repeat it
+- `HOME` stays your real home directory when one is available
+- `TMPDIR` is set to `/tmp`
+- the shell's normal history file is writable by default
+- extra file descriptors `>= 3` are closed before entering the sandbox
+- on macOS, if stdout or stderr is redirected to a regular file outside the
+  allowed writable paths, `sbrun` refuses to start unless you set
+  `SBBASH_ALLOW_STDIO_REDIRECTS=1`
+
+Development, build, test, and release notes live in `DEV.md`.
 
 ## Config
 
@@ -133,6 +120,26 @@ accepted.
 Configured paths and `-w/--writable` paths are combined. System config is
 loaded first, then user config, then CLI flags.
 
+`-e/--envdir VAR` is CLI-only. Each requested variable is set to
+`.sbrun/VAR`, and those directories are created on demand inside the launch
+directory.
+
+## Envdir
+
+`-e VAR`, `--envdir VAR`, and `--envdir=VAR` all mean the same thing.
+
+- `VAR` must be a valid environment variable name: `[A-Za-z_][A-Za-z0-9_]*`
+- `sbrun` creates `.sbrun/` only when at least one envdir flag is used
+- each requested variable gets a directory at `.sbrun/VAR`
+- the child process sees `VAR` set to that directory, even if `VAR` already had a different value
+- repeated `-e/--envdir` flags are fine; duplicate names are ignored after the first
+- envdir settings are CLI-only and are not read from config files
+
+This is mainly useful for tools that want a writable state or cache directory
+without granting broad write access to your real home directory. Typical
+examples are `IPYTHONDIR`, `MPLCONFIGDIR`, `XDG_CACHE_HOME`, and
+`XDG_STATE_HOME`.
+
 The installed default global config includes a practical allow-list of common
 user state/cache locations such as:
 
@@ -146,16 +153,3 @@ user state/cache locations such as:
 - `~/Library/Caches`
 
 Edit the global config or your user config to tighten or extend that list.
-
-## Notes
-
-- The compiled `sbrun` binary applies the sandbox profile directly through
-  `libsandbox`; `sbrun.pl` shells out through `/usr/bin/sandbox-exec`.
-- `sbrun` is now optimized for "real home, restricted writes" rather than
-  "fake home". That means shell startup and config discovery behave normally,
-  but writes still need to land in the work tree, the installed allow-list,
-  the shell's normal history file, or paths explicitly added with `-w`.
-- The sandbox only blocks acquiring new writable resources. If the parent shell
-  already gave the process an open writable fd, that fd can still be used.
-  `sbrun` mitigates this by closing fds `>= 3` and by rejecting regular-file
-  stdout/stderr redirections outside the allowed writable directories on macOS.

@@ -9,6 +9,7 @@ use POSIX qw(_SC_OPEN_MAX sysconf ttyname);
 
 use constant F_GETPATH => 50;
 use constant DEFAULT_XDG_CONFIG_DIRS => "/opt/homebrew/etc/xdg:/usr/local/etc/xdg:/etc/xdg";
+use constant BUILTIN_VERSION => "0.1.0";
 
 my $prog_name = do {
     my $name = $0;
@@ -48,7 +49,9 @@ sub print_help {
         "\n",
         "Options:\n",
         "  -h, --help           Show this help and exit\n",
+        "  --version            Show version and exit\n",
         "  -w, --writable PATH  Allow writes to PATH; may be repeated\n",
+        "  -e, --envdir VAR     Set VAR to .sbrun/VAR; may be repeated\n",
         "  --                   Stop parsing $prog_name options and force command mode\n",
         "\n",
         "Behavior:\n",
@@ -60,7 +63,29 @@ sub print_help {
         "  Global config: \$XDG_CONFIG_DIRS/.../sbrun/config\n",
         "  User config:   \$XDG_CONFIG_HOME/sbrun/config or ~/.config/sbrun/config\n",
         "  Format: writable_path=/path or optional_writable_path=/path\n",
-        "          writable_dir=/path and optional_writable_dir=/path are also accepted\n";
+        "          writable_dir=/path and optional_writable_dir=/path are also accepted\n",
+        "  Envdir: -e/--envdir VAR is CLI-only; VAR must be [A-Za-z_][A-Za-z0-9_]*\n";
+}
+
+sub program_version {
+    my $script = realpath($0);
+    if (defined($script) && $script =~ m{\A(.+)/[^/]+\z}) {
+        my $path = path_join($1, "VERSION");
+        if (open my $fh, "<", $path) {
+            my $version = <$fh>;
+            close $fh;
+            if (defined($version)) {
+                chomp $version;
+                return $version if $version ne "";
+            }
+        }
+    }
+    return BUILTIN_VERSION;
+}
+
+sub print_version {
+    my ($fh) = @_;
+    print {$fh} "$prog_name ", program_version(), "\n";
 }
 
 sub cli_requests_help {
@@ -74,7 +99,35 @@ sub cli_requests_help {
             $i += 2;
             next;
         }
+        if ($argv[$i] eq "-e" || $argv[$i] eq "--envdir") {
+            $i += 2;
+            next;
+        }
         if ($argv[$i] =~ /\A--writable=/) {
+            ++$i;
+            next;
+        }
+        if ($argv[$i] =~ /\A--envdir=/) {
+            ++$i;
+            next;
+        }
+        last;
+    }
+    return 0;
+}
+
+sub cli_requests_version {
+    my (@argv) = @_;
+    my $i = 0;
+
+    while ($i < @argv) {
+        return 1 if $argv[$i] eq "--version";
+        return 0 if $argv[$i] eq "--";
+        if ($argv[$i] eq "-w" || $argv[$i] eq "--writable" || $argv[$i] eq "-e" || $argv[$i] eq "--envdir") {
+            $i += 2;
+            next;
+        }
+        if ($argv[$i] =~ /\A--writable=/ || $argv[$i] =~ /\A--envdir=/) {
             ++$i;
             next;
         }
@@ -213,8 +266,13 @@ sub load_config_writable_paths {
     load_config_writable_paths_from_path($dirs, $files, $seen, $host_home, config_path($host_home, $xdg_config_home));
 }
 
+sub valid_envdir_name {
+    my ($name) = @_;
+    return defined($name) && $name =~ /\A[A-Za-z_][A-Za-z0-9_]*\z/;
+}
+
 sub parse_cli_options {
-    my ($dirs, $files, $seen, $host_home, @argv) = @_;
+    my ($dirs, $files, $seen, $envdir_vars, $host_home, @argv) = @_;
     my $force_command = 0;
     my $i = 0;
 
@@ -230,10 +288,25 @@ sub parse_cli_options {
             $i += 2;
             next;
         }
+        if ($argv[$i] eq "-e" || $argv[$i] eq "--envdir") {
+            dief("%s requires an environment variable name", $argv[$i]) if $i + 1 >= @argv;
+            dief("invalid envdir variable name %s", $argv[$i + 1]) if !valid_envdir_name($argv[$i + 1]);
+            push @$envdir_vars, $argv[$i + 1] if !grep { $_ eq $argv[$i + 1] } @$envdir_vars;
+            $i += 2;
+            next;
+        }
         if ($argv[$i] =~ /\A--writable=(.*)\z/s) {
             my $value = $1;
             dief("--writable requires a path argument") if $value eq "";
             add_writable_path($dirs, $files, $seen, $value, $host_home, 0);
+            ++$i;
+            next;
+        }
+        if ($argv[$i] =~ /\A--envdir=(.*)\z/s) {
+            my $value = $1;
+            dief("--envdir requires an environment variable name") if $value eq "";
+            dief("invalid envdir variable name %s", $value) if !valid_envdir_name($value);
+            push @$envdir_vars, $value if !grep { $_ eq $value } @$envdir_vars;
             ++$i;
             next;
         }
@@ -250,6 +323,24 @@ sub close_extra_fds {
     for (my $fd = 3; $fd < $maxfd; ++$fd) {
         POSIX::close($fd);
     }
+}
+
+sub ensure_real_directory {
+    my ($path) = @_;
+    my @st = lstat($path);
+    if (@st) {
+        dief("%s exists and is a symlink; refusing to use it", $path) if -l _;
+        dief("%s exists and is not a directory", $path) if !-d _;
+        return;
+    }
+    dief("%s: %s", $path, $!) if $! != ENOENT;
+    return if mkdir($path, 0700);
+    if ($! != EEXIST) {
+        dief("%s: %s", $path, $!);
+    }
+    @st = lstat($path);
+    dief("%s: %s", $path, $!) if !@st;
+    dief("%s exists and is not a real directory", $path) if -l _ || !-d _;
 }
 
 sub path_is_within {
@@ -304,7 +395,7 @@ sub refuse_redirected_regular_stdio {
         next if !defined($raw_path);
         my $final_path = realpath_if_possible($raw_path);
         dief(
-            "fd %d is redirected to %s outside allowed writable directories; refusing to start (set SBBASH_ALLOW_STDIO_REDIRECTS=1 to override)",
+            "fd %d is redirected to %s outside allowed writable paths; refusing to start (set SBBASH_ALLOW_STDIO_REDIRECTS=1 to override)",
             $fd,
             $final_path
         ) if !path_is_allowed_write_target($final_path, $workdir, $extra_writable_dirs, $extra_writable_files);
@@ -312,7 +403,7 @@ sub refuse_redirected_regular_stdio {
 }
 
 sub sanitize_env {
-    my ($workdir, $tmpdir, $histfile, $host_home, $user_name, $shell_path) = @_;
+    my ($workdir, $tmpdir, $histfile, $host_home, $user_name, $shell_path, $envdir_root, $envdir_vars) = @_;
     my $term = $ENV{TERM};
     my $lang = $ENV{LANG};
     my $lc_all = $ENV{LC_ALL};
@@ -351,6 +442,12 @@ sub sanitize_env {
     $ENV{LANG} = $lang if defined($lang) && $lang ne "";
     $ENV{LC_ALL} = $lc_all if defined($lc_all) && $lc_all ne "";
     $ENV{LC_CTYPE} = $lc_ctype if defined($lc_ctype) && $lc_ctype ne "";
+
+    if (defined($envdir_root)) {
+        for my $name (@$envdir_vars) {
+            $ENV{$name} = path_join($envdir_root, $name);
+        }
+    }
 }
 
 sub escape_sandbox_string {
@@ -412,6 +509,10 @@ if (cli_requests_help(@ARGV)) {
     print_help(*STDOUT);
     exit 0;
 }
+if (cli_requests_version(@ARGV)) {
+    print_version(*STDOUT);
+    exit 0;
+}
 
 my @pw = getpwuid($<);
 my $user_name = defined($pw[0]) ? $pw[0] : undef;
@@ -429,9 +530,10 @@ chdir($workdir) or die_errno("chdir($workdir)");
 my @extra_writable_dirs;
 my @extra_writable_files;
 my %seen_extra_writable_paths;
+my @envdir_vars;
 load_config_writable_paths(\@extra_writable_dirs, \@extra_writable_files, \%seen_extra_writable_paths, $host_home, $xdg_config_home);
 my ($force_command, @remaining_argv) =
-    parse_cli_options(\@extra_writable_dirs, \@extra_writable_files, \%seen_extra_writable_paths, $host_home, @ARGV);
+    parse_cli_options(\@extra_writable_dirs, \@extra_writable_files, \%seen_extra_writable_paths, \@envdir_vars, $host_home, @ARGV);
 
 refuse_redirected_regular_stdio($workdir, \@extra_writable_dirs, \@extra_writable_files);
 
@@ -440,7 +542,16 @@ my $histfile = defined($host_home) && $host_home ne ""
     ? path_join($host_home, history_file_name_for_shell($shell_path))
     : undef;
 
-sanitize_env($workdir, $tmpdir, $histfile, $host_home, $user_name, $shell_path);
+my $envdir_root;
+if (@envdir_vars) {
+    $envdir_root = path_join($workdir, ".sbrun");
+    ensure_real_directory($envdir_root);
+    for my $name (@envdir_vars) {
+        ensure_real_directory(path_join($envdir_root, $name));
+    }
+}
+
+sanitize_env($workdir, $tmpdir, $histfile, $host_home, $user_name, $shell_path, $envdir_root, \@envdir_vars);
 close_extra_fds();
 
 my $tty_path = ttyname(fileno(STDIN));

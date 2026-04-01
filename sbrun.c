@@ -29,6 +29,10 @@
 #define SBBASH_DEFAULT_XDG_CONFIG_DIRS "/opt/homebrew/etc/xdg:/usr/local/etc/xdg:/etc/xdg"
 #endif
 
+#ifndef SBRUN_VERSION
+#define SBRUN_VERSION "0.1.0"
+#endif
+
 typedef void *sandbox_params_t;
 typedef void *sandbox_profile_t;
 
@@ -216,7 +220,9 @@ static void print_help(FILE *out, const char *prog) {
             "\n"
             "Options:\n"
             "  -h, --help           Show this help and exit\n"
+            "  --version            Show version and exit\n"
             "  -w, --writable PATH  Allow writes to PATH; may be repeated\n"
+            "  -e, --envdir VAR     Set VAR to .sbrun/VAR; may be repeated\n"
             "  --                   Stop parsing %s options and force command mode\n"
             "\n"
             "Behavior:\n"
@@ -228,9 +234,14 @@ static void print_help(FILE *out, const char *prog) {
             "  Global config: $XDG_CONFIG_DIRS/.../sbrun/config\n"
             "  User config:   $XDG_CONFIG_HOME/sbrun/config or ~/.config/sbrun/config\n"
             "  Format: writable_path=/path or optional_writable_path=/path\n"
-            "          writable_dir=/path and optional_writable_dir=/path are also accepted\n",
+            "          writable_dir=/path and optional_writable_dir=/path are also accepted\n"
+            "  Envdir: -e/--envdir VAR is CLI-only; VAR must be [A-Za-z_][A-Za-z0-9_]*\n",
             prog,
             prog);
+}
+
+static void print_version(FILE *out, const char *prog) {
+    fprintf(out, "%s %s\n", prog, SBRUN_VERSION);
 }
 
 static bool cli_requests_help(int argc, char **argv) {
@@ -247,7 +258,39 @@ static bool cli_requests_help(int argc, char **argv) {
             }
             continue;
         }
+        if (strcmp(argv[i], "-e") == 0 || strcmp(argv[i], "--envdir") == 0) {
+            if (i + 1 < argc) {
+                ++i;
+            }
+            continue;
+        }
         if (strncmp(argv[i], "--writable=", 11) == 0) {
+            continue;
+        }
+        if (strncmp(argv[i], "--envdir=", 9) == 0) {
+            continue;
+        }
+        break;
+    }
+    return false;
+}
+
+static bool cli_requests_version(int argc, char **argv) {
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--version") == 0) {
+            return true;
+        }
+        if (strcmp(argv[i], "--") == 0) {
+            return false;
+        }
+        if (strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--writable") == 0 ||
+            strcmp(argv[i], "-e") == 0 || strcmp(argv[i], "--envdir") == 0) {
+            if (i + 1 < argc) {
+                ++i;
+            }
+            continue;
+        }
+        if (strncmp(argv[i], "--writable=", 11) == 0 || strncmp(argv[i], "--envdir=", 9) == 0) {
             continue;
         }
         break;
@@ -402,7 +445,27 @@ static void load_user_config_writable_dirs(struct strlist *dirs,
     free(path);
 }
 
-static void parse_cli_options(int argc, char **argv, struct strlist *dirs, int *arg_index, bool *force_command) {
+static bool valid_envdir_name(const char *name) {
+    if (!name || name[0] == '\0') {
+        return false;
+    }
+    if (!(isalpha((unsigned char)name[0]) || name[0] == '_')) {
+        return false;
+    }
+    for (size_t i = 1; name[i] != '\0'; ++i) {
+        if (!(isalnum((unsigned char)name[i]) || name[i] == '_')) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static void parse_cli_options(int argc,
+                              char **argv,
+                              struct strlist *dirs,
+                              struct strlist *envdir_vars,
+                              int *arg_index,
+                              bool *force_command) {
     int i = 1;
     *force_command = false;
 
@@ -420,12 +483,35 @@ static void parse_cli_options(int argc, char **argv, struct strlist *dirs, int *
             i += 2;
             continue;
         }
+        if (strcmp(argv[i], "-e") == 0 || strcmp(argv[i], "--envdir") == 0) {
+            if (i + 1 >= argc) {
+                dief("%s requires an environment variable name", argv[i]);
+            }
+            if (!valid_envdir_name(argv[i + 1])) {
+                dief("invalid envdir variable name %s", argv[i + 1]);
+            }
+            strlist_append_unique_owned(envdir_vars, xstrdup(argv[i + 1]));
+            i += 2;
+            continue;
+        }
         if (strncmp(argv[i], "--writable=", 11) == 0) {
             const char *value = argv[i] + 11;
             if (value[0] == '\0') {
                 dief("--writable requires a path argument");
             }
             strlist_append_dup(dirs, value);
+            ++i;
+            continue;
+        }
+        if (strncmp(argv[i], "--envdir=", 9) == 0) {
+            const char *value = argv[i] + 9;
+            if (value[0] == '\0') {
+                dief("--envdir requires an environment variable name");
+            }
+            if (!valid_envdir_name(value)) {
+                dief("invalid envdir variable name %s", value);
+            }
+            strlist_append_unique_owned(envdir_vars, xstrdup(value));
             ++i;
             continue;
         }
@@ -504,6 +590,34 @@ static void close_extra_fds(void) {
     }
 }
 
+static void ensure_real_directory(const char *path) {
+    struct stat st;
+    if (lstat(path, &st) == 0) {
+        if (S_ISLNK(st.st_mode)) {
+            dief("%s exists and is a symlink; refusing to use it", path);
+        }
+        if (!S_ISDIR(st.st_mode)) {
+            dief("%s exists and is not a directory", path);
+        }
+        return;
+    }
+    if (errno != ENOENT) {
+        die_errno(path);
+    }
+    if (mkdir(path, 0700) == 0) {
+        return;
+    }
+    if (errno != EEXIST) {
+        die_errno(path);
+    }
+    if (lstat(path, &st) != 0) {
+        die_errno(path);
+    }
+    if (S_ISLNK(st.st_mode) || !S_ISDIR(st.st_mode)) {
+        dief("%s exists and is not a real directory", path);
+    }
+}
+
 #if defined(F_GETPATH)
 static bool path_is_within(const char *path, const char *dir) {
     size_t dlen = strlen(dir);
@@ -565,7 +679,7 @@ static void refuse_redirected_regular_stdio(const char *workdir,
         }
 
         if (!path_is_allowed_write_target(final_path, workdir, extra_writable_dirs, extra_writable_files)) {
-            dief("fd %d is redirected to %s outside allowed writable directories; refusing to start (set SBBASH_ALLOW_STDIO_REDIRECTS=1 to override)",
+            dief("fd %d is redirected to %s outside allowed writable paths; refusing to start (set SBBASH_ALLOW_STDIO_REDIRECTS=1 to override)",
                  fd,
                  final_path);
         }
@@ -582,7 +696,9 @@ static void sanitize_env(const char *workdir,
                          const char *histfile,
                          const char *host_home,
                          const char *user_name,
-                         const char *shell_path) {
+                         const char *shell_path,
+                         const char *envdir_root,
+                         const struct strlist *envdir_vars) {
     const char *term = getenv("TERM");
     const char *lang = getenv("LANG");
     const char *lc_all = getenv("LC_ALL");
@@ -637,6 +753,14 @@ static void sanitize_env(const char *workdir,
     }
     if (lc_ctype && lc_ctype[0] != '\0') {
         setenv("LC_CTYPE", lc_ctype, 1);
+    }
+
+    if (envdir_root) {
+        for (size_t i = 0; i < envdir_vars->len; ++i) {
+            char *envdir = path_join(envdir_root, envdir_vars->items[i]);
+            setenv(envdir_vars->items[i], envdir, 1);
+            free(envdir);
+        }
     }
 }
 
@@ -736,6 +860,10 @@ int main(int argc, char **argv) {
         print_help(stdout, base_name(argv[0]));
         return 0;
     }
+    if (cli_requests_version(argc, argv)) {
+        print_version(stdout, base_name(argv[0]));
+        return 0;
+    }
 
     struct passwd *pw = getpwuid(getuid());
     const char *user_name = pw ? pw->pw_name : NULL;
@@ -762,12 +890,13 @@ int main(int argc, char **argv) {
 
     struct strlist raw_extra_writable_dirs = {0};
     struct strlist raw_optional_writable_dirs = {0};
+    struct strlist envdir_vars = {0};
     load_system_config_writable_dirs(&raw_extra_writable_dirs, &raw_optional_writable_dirs, xdg_config_dirs);
     load_user_config_writable_dirs(&raw_extra_writable_dirs, &raw_optional_writable_dirs, host_home, xdg_config_home);
 
     int arg_index = 1;
     bool force_command = false;
-    parse_cli_options(argc, argv, &raw_extra_writable_dirs, &arg_index, &force_command);
+    parse_cli_options(argc, argv, &raw_extra_writable_dirs, &envdir_vars, &arg_index, &force_command);
 
     struct strlist extra_writable_dirs = {0};
     struct strlist extra_writable_files = {0};
@@ -782,7 +911,18 @@ int main(int argc, char **argv) {
         histfile = path_join(host_home, history_file_name_for_shell(shell_path));
     }
 
-    sanitize_env(workdir, tmpdir, histfile, host_home, user_name, shell_path);
+    char *envdir_root = NULL;
+    if (envdir_vars.len > 0) {
+        envdir_root = path_join(workdir, ".sbrun");
+        ensure_real_directory(envdir_root);
+        for (size_t i = 0; i < envdir_vars.len; ++i) {
+            char *envdir = path_join(envdir_root, envdir_vars.items[i]);
+            ensure_real_directory(envdir);
+            free(envdir);
+        }
+    }
+
+    sanitize_env(workdir, tmpdir, histfile, host_home, user_name, shell_path, envdir_root, &envdir_vars);
     close_extra_fds();
 
     const char *tty_path = ttyname(STDIN_FILENO);

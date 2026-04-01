@@ -1,0 +1,55 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install test dependency
+        run: python -m pip install --upgrade pip pytest
+
+      - name: Build
+        run: make
+
+      - name: Test
+        run: pytest -q
+
+      - name: Package release assets
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          arch="$(uname -m)"
+          asset="sbrun-${tag}-macos-${arch}.tar.gz"
+          mkdir -p dist/pkg
+          cp sbrun sbrun.pl README.md sbrun.default.conf VERSION dist/pkg/
+          tar -C dist/pkg -czf "dist/${asset}" .
+          shasum -a 256 "dist/${asset}" > dist/SHA256SUMS
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          assets=(dist/*)
+          if gh release view "${tag}" >/dev/null 2>&1; then
+            gh release upload "${tag}" "${assets[@]}" --clobber
+          else
+            gh release create "${tag}" "${assets[@]}" --verify-tag --generate-notes
+          fi
