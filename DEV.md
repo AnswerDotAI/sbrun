@@ -68,7 +68,7 @@ The canonical version lives in `VERSION`.
   back to its built-in copy
 - both variants expose it via `--version`
 
-Bump the minor version with:
+Bump the patch version with:
 
 ```sh
 tools/bump.sh

@@ -9,7 +9,7 @@ use POSIX qw(_SC_OPEN_MAX sysconf ttyname);
 
 use constant F_GETPATH => 50;
 use constant DEFAULT_XDG_CONFIG_DIRS => "/opt/homebrew/etc/xdg:/usr/local/etc/xdg:/etc/xdg";
-use constant BUILTIN_VERSION => "0.1.0";
+use constant BUILTIN_VERSION => "0.0.2";
 
 my $prog_name = do {
     my $name = $0;

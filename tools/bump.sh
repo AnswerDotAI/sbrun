@@ -14,7 +14,7 @@ case "$current_version" in
 esac
 
 IFS=. read -r major minor patch <<<"$current_version"
-new_version="${major}.$((minor + 1)).0"
+new_version="${major}.${minor}.$((patch + 1))"
 
 printf '%s\n' "$new_version" > "$version_file"
 perl -0pi -e 's/use constant BUILTIN_VERSION => "[^"]+";/use constant BUILTIN_VERSION => "'"$new_version"'";/' "$perl_file"

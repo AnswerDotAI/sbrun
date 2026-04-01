@@ -486,3 +486,24 @@ def test_envdir_flag_rejects_invalid_names(
 def test_tools_shell_scripts_parse() -> None:
     run_cmd(["bash", "-n", "tools/bump.sh"])
     run_cmd(["bash", "-n", "tools/release.sh"])
+
+
+def test_bump_script_updates_patch_version(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    tools_dir = repo / "tools"
+    tools_dir.mkdir(parents=True)
+    shutil.copy(ROOT / "tools/bump.sh", tools_dir / "bump.sh")
+    shutil.copy(ROOT / "sbrun.pl", repo / "sbrun.pl")
+    (repo / "VERSION").write_text("1.2.3\n")
+
+    result = subprocess.run(
+        ["bash", str(tools_dir / "bump.sh")],
+        cwd=repo,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "1.2.4"
+    assert (repo / "VERSION").read_text() == "1.2.4\n"
+    assert 'use constant BUILTIN_VERSION => "1.2.4";' in (repo / "sbrun.pl").read_text()
