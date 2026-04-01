@@ -30,7 +30,7 @@
 #endif
 
 #ifndef SBRUN_VERSION
-#define SBRUN_VERSION "0.0.2"
+#define SBRUN_VERSION "0.0.3"
 #endif
 
 static const char *DEFAULT_USER_CONFIG =

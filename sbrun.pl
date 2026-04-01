@@ -9,7 +9,7 @@ use POSIX qw(_SC_OPEN_MAX sysconf ttyname);
 
 use constant F_GETPATH => 50;
 use constant DEFAULT_XDG_CONFIG_DIRS => "/opt/homebrew/etc/xdg:/usr/local/etc/xdg:/etc/xdg";
-use constant BUILTIN_VERSION => "0.0.2";
+use constant BUILTIN_VERSION => "0.0.3";
 use constant DEFAULT_USER_CONFIG => <<'EOF';
 # Default writable allow-list for sbrun.
 #
