@@ -85,6 +85,7 @@ sub print_help {
         "  --version            Show version and exit\n",
         "  -w, --writable PATH  Allow writes to PATH; may be repeated\n",
         "  -e, --envdir VAR     Set VAR to .sbrun/VAR; may be repeated\n",
+        "  -v, --unsetenv VAR   Remove VAR from the child environment; may be repeated\n",
         "  --                   Stop parsing $prog_name options and force command mode\n",
         "\n",
         "Behavior:\n",
@@ -97,7 +98,8 @@ sub print_help {
         "  User config:   \$XDG_CONFIG_HOME/sbrun/config or ~/.config/sbrun/config\n",
         "  Format: writable_path=/path or optional_writable_path=/path\n",
         "          writable_dir=/path and optional_writable_dir=/path are also accepted\n",
-        "  Envdir: -e/--envdir VAR is CLI-only; VAR must be [A-Za-z_][A-Za-z0-9_]*\n";
+        "  Envdir:   -e/--envdir VAR is CLI-only; VAR must be [A-Za-z_][A-Za-z0-9_]*\n",
+        "  Unsetenv: -v/--unsetenv VAR is CLI-only; some names are reserved\n";
 }
 
 sub program_version {
@@ -136,11 +138,19 @@ sub cli_requests_help {
             $i += 2;
             next;
         }
+        if ($argv[$i] eq "-v" || $argv[$i] eq "--unsetenv") {
+            $i += 2;
+            next;
+        }
         if ($argv[$i] =~ /\A--writable=/) {
             ++$i;
             next;
         }
         if ($argv[$i] =~ /\A--envdir=/) {
+            ++$i;
+            next;
+        }
+        if ($argv[$i] =~ /\A--unsetenv=/) {
             ++$i;
             next;
         }
@@ -156,11 +166,12 @@ sub cli_requests_version {
     while ($i < @argv) {
         return 1 if $argv[$i] eq "--version";
         return 0 if $argv[$i] eq "--";
-        if ($argv[$i] eq "-w" || $argv[$i] eq "--writable" || $argv[$i] eq "-e" || $argv[$i] eq "--envdir") {
+        if ($argv[$i] eq "-w" || $argv[$i] eq "--writable" || $argv[$i] eq "-e" || $argv[$i] eq "--envdir" ||
+            $argv[$i] eq "-v" || $argv[$i] eq "--unsetenv") {
             $i += 2;
             next;
         }
-        if ($argv[$i] =~ /\A--writable=/ || $argv[$i] =~ /\A--envdir=/) {
+        if ($argv[$i] =~ /\A--writable=/ || $argv[$i] =~ /\A--envdir=/ || $argv[$i] =~ /\A--unsetenv=/) {
             ++$i;
             next;
         }
@@ -317,13 +328,35 @@ sub load_config_writable_paths {
     load_config_writable_paths_from_path($dirs, $files, $seen, $host_home, config_path($host_home, $xdg_config_home));
 }
 
-sub valid_envdir_name {
+sub valid_env_name {
     my ($name) = @_;
     return defined($name) && $name =~ /\A[A-Za-z_][A-Za-z0-9_]*\z/;
 }
 
+sub unsetenv_name_is_reserved {
+    my ($name) = @_;
+    return 1 if $name =~ /\ASBBASH_/;
+    my %reserved = map { $_ => 1 } qw(
+        PATH
+        PWD
+        HOME
+        TMPDIR
+        HISTFILE
+        SHELL
+        SBRUN_ACTIVE
+        USER
+        LOGNAME
+        TERM
+        LANG
+        LC_ALL
+        LC_CTYPE
+        BASH_SILENCE_DEPRECATION_WARNING
+    );
+    return $reserved{$name} ? 1 : 0;
+}
+
 sub parse_cli_options {
-    my ($dirs, $files, $seen, $envdir_vars, $host_home, @argv) = @_;
+    my ($dirs, $files, $seen, $envdir_vars, $unsetenv_vars, $host_home, @argv) = @_;
     my $force_command = 0;
     my $i = 0;
 
@@ -341,8 +374,20 @@ sub parse_cli_options {
         }
         if ($argv[$i] eq "-e" || $argv[$i] eq "--envdir") {
             dief("%s requires an environment variable name", $argv[$i]) if $i + 1 >= @argv;
-            dief("invalid envdir variable name %s", $argv[$i + 1]) if !valid_envdir_name($argv[$i + 1]);
+            dief("invalid envdir variable name %s", $argv[$i + 1]) if !valid_env_name($argv[$i + 1]);
+            dief("cannot use --envdir and --unsetenv for the same variable %s", $argv[$i + 1])
+                if grep { $_ eq $argv[$i + 1] } @$unsetenv_vars;
             push @$envdir_vars, $argv[$i + 1] if !grep { $_ eq $argv[$i + 1] } @$envdir_vars;
+            $i += 2;
+            next;
+        }
+        if ($argv[$i] eq "-v" || $argv[$i] eq "--unsetenv") {
+            dief("%s requires an environment variable name", $argv[$i]) if $i + 1 >= @argv;
+            dief("invalid unsetenv variable name %s", $argv[$i + 1]) if !valid_env_name($argv[$i + 1]);
+            dief("cannot unset reserved environment variable %s", $argv[$i + 1]) if unsetenv_name_is_reserved($argv[$i + 1]);
+            dief("cannot use --envdir and --unsetenv for the same variable %s", $argv[$i + 1])
+                if grep { $_ eq $argv[$i + 1] } @$envdir_vars;
+            push @$unsetenv_vars, $argv[$i + 1] if !grep { $_ eq $argv[$i + 1] } @$unsetenv_vars;
             $i += 2;
             next;
         }
@@ -356,8 +401,21 @@ sub parse_cli_options {
         if ($argv[$i] =~ /\A--envdir=(.*)\z/s) {
             my $value = $1;
             dief("--envdir requires an environment variable name") if $value eq "";
-            dief("invalid envdir variable name %s", $value) if !valid_envdir_name($value);
+            dief("invalid envdir variable name %s", $value) if !valid_env_name($value);
+            dief("cannot use --envdir and --unsetenv for the same variable %s", $value)
+                if grep { $_ eq $value } @$unsetenv_vars;
             push @$envdir_vars, $value if !grep { $_ eq $value } @$envdir_vars;
+            ++$i;
+            next;
+        }
+        if ($argv[$i] =~ /\A--unsetenv=(.*)\z/s) {
+            my $value = $1;
+            dief("--unsetenv requires an environment variable name") if $value eq "";
+            dief("invalid unsetenv variable name %s", $value) if !valid_env_name($value);
+            dief("cannot unset reserved environment variable %s", $value) if unsetenv_name_is_reserved($value);
+            dief("cannot use --envdir and --unsetenv for the same variable %s", $value)
+                if grep { $_ eq $value } @$envdir_vars;
+            push @$unsetenv_vars, $value if !grep { $_ eq $value } @$unsetenv_vars;
             ++$i;
             next;
         }
@@ -454,7 +512,7 @@ sub refuse_redirected_regular_stdio {
 }
 
 sub sanitize_env {
-    my ($workdir, $tmpdir, $histfile, $host_home, $user_name, $shell_path, $envdir_root, $envdir_vars) = @_;
+    my ($workdir, $tmpdir, $histfile, $host_home, $user_name, $shell_path, $envdir_root, $envdir_vars, $unsetenv_vars) = @_;
     my $term = $ENV{TERM};
     my $lang = $ENV{LANG};
     my $lc_all = $ENV{LC_ALL};
@@ -500,6 +558,8 @@ sub sanitize_env {
             $ENV{$name} = path_join($envdir_root, $name);
         }
     }
+
+    delete @ENV{@$unsetenv_vars} if @$unsetenv_vars;
 }
 
 sub escape_sandbox_string {
@@ -584,9 +644,10 @@ my @extra_writable_dirs;
 my @extra_writable_files;
 my %seen_extra_writable_paths;
 my @envdir_vars;
+my @unsetenv_vars;
 load_config_writable_paths(\@extra_writable_dirs, \@extra_writable_files, \%seen_extra_writable_paths, $host_home, $xdg_config_home);
 my ($force_command, @remaining_argv) =
-    parse_cli_options(\@extra_writable_dirs, \@extra_writable_files, \%seen_extra_writable_paths, \@envdir_vars, $host_home, @ARGV);
+    parse_cli_options(\@extra_writable_dirs, \@extra_writable_files, \%seen_extra_writable_paths, \@envdir_vars, \@unsetenv_vars, $host_home, @ARGV);
 
 refuse_redirected_regular_stdio($workdir, \@extra_writable_dirs, \@extra_writable_files);
 
@@ -604,7 +665,7 @@ if (@envdir_vars) {
     }
 }
 
-sanitize_env($workdir, $tmpdir, $histfile, $host_home, $user_name, $shell_path, $envdir_root, \@envdir_vars);
+sanitize_env($workdir, $tmpdir, $histfile, $host_home, $user_name, $shell_path, $envdir_root, \@envdir_vars, \@unsetenv_vars);
 close_extra_fds();
 
 my $tty_path = ttyname(fileno(STDIN));

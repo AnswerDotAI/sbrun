@@ -78,6 +78,13 @@ cd /path/to/project
 sbrun --envdir=XDG_CACHE_HOME --envdir=XDG_STATE_HOME python3 app.py
 ```
 
+Remove specific environment variables from the child process:
+
+```sh
+cd /path/to/project
+sbrun -v GITHUB_API_KEY --unsetenv=OPENAI_API_KEY python3 app.py
+```
+
 Run a shell snippet:
 
 ```sh
@@ -123,6 +130,7 @@ sbrun --version
 - if the first argument starts with `-`, `sbrun` passes those flags to your shell
 - `-w PATH` or `--writable PATH` adds an extra writable file or directory; you can repeat it
 - `-e VAR` or `--envdir VAR` sets `VAR` to `.sbrun/VAR`; you can repeat it
+- `-v VAR` or `--unsetenv VAR` removes `VAR` from the child environment; you can repeat it
 - `HOME` stays your real home directory when one is available
 - `TMPDIR` is set to `/tmp`
 - the shell's normal history file is writable by default
@@ -135,6 +143,40 @@ sbrun --version
 For example, you can use `SBRUN_ACTIVE` in your shell prompt logic instead of
 having `sbrun` override `PS1`, `PROMPT_COMMAND`, or similar shell-specific
 customizations.
+
+If your bash login setup already sources `~/.bashrc`, you can prepend a
+padlock when running inside `sbrun` with:
+
+```bash
+sbrun_prompt_prefix() {
+  [[ ${SBRUN_ACTIVE:-} == 1 ]] || return
+  case $PS1 in
+    '🔒 '*) ;;
+    *) PS1="🔒 $PS1" ;;
+  esac
+}
+
+case "$(declare -p PROMPT_COMMAND 2>/dev/null)" in
+  "declare -a "*)
+    case " ${PROMPT_COMMAND[*]} " in
+      *" sbrun_prompt_prefix "*) ;;
+      *) PROMPT_COMMAND+=(sbrun_prompt_prefix) ;;
+    esac
+    ;;
+  *)
+    case ";${PROMPT_COMMAND:-};" in
+      *";sbrun_prompt_prefix;"*) ;;
+      *)
+        PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND; }sbrun_prompt_prefix"
+        ;;
+    esac
+    ;;
+esac
+```
+
+This keeps any existing `PROMPT_COMMAND` and `PS1` in place and adds the
+padlock after other prompt setup has run. If your login shell does not source
+`~/.bashrc`, put the same snippet in `~/.bash_profile` instead.
 
 Development, build, test, and release notes live in `DEV.md`.
 
@@ -164,9 +206,10 @@ accepted.
 Configured paths and `-w/--writable` paths are combined. System config is
 loaded first, then user config, then CLI flags.
 
-`-e/--envdir VAR` is CLI-only. Each requested variable is set to
-`.sbrun/VAR`, and those directories are created on demand inside the launch
-directory.
+`-e/--envdir VAR` and `-v/--unsetenv VAR` are CLI-only. Each requested envdir
+variable is set to `.sbrun/VAR`, and those directories are created on demand
+inside the launch directory. Each requested unsetenv variable is removed from
+the child environment before the command runs.
 
 ## Envdir
 
@@ -183,6 +226,21 @@ This is mainly useful for tools that want a writable state or cache directory
 without granting broad write access to your real home directory. Typical
 examples are `IPYTHONDIR`, `MPLCONFIGDIR`, `XDG_CACHE_HOME`, and
 `XDG_STATE_HOME`.
+
+## Unsetenv
+
+`-v VAR`, `--unsetenv VAR`, and `--unsetenv=VAR` all mean the same thing.
+
+- `VAR` must be a valid environment variable name: `[A-Za-z_][A-Za-z0-9_]*`
+- repeated `-v/--unsetenv` flags are fine; duplicate names are ignored after the first
+- unsetenv settings are CLI-only and are not read from config files
+- a variable cannot be requested by both `--envdir` and `--unsetenv`
+- reserved names such as `PATH`, `HOME`, `SHELL`, `TMPDIR`, `HISTFILE`, `SBRUN_ACTIVE`, and `SBBASH_*` are rejected
+
+This is useful when you want the sandboxed child process to inherit most of
+your environment, but not selected credentials or tool-specific variables.
+Because `-v` is now an `sbrun` option, use `sbrun -- -v` if you need to pass
+`-v` through to the shell.
 
 The installed default global config includes a practical allow-list of common
 user state/cache locations such as:

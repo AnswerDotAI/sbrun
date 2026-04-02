@@ -256,6 +256,7 @@ static void print_help(FILE *out, const char *prog) {
             "  --version            Show version and exit\n"
             "  -w, --writable PATH  Allow writes to PATH; may be repeated\n"
             "  -e, --envdir VAR     Set VAR to .sbrun/VAR; may be repeated\n"
+            "  -v, --unsetenv VAR   Remove VAR from the child environment; may be repeated\n"
             "  --                   Stop parsing %s options and force command mode\n"
             "\n"
             "Behavior:\n"
@@ -268,7 +269,8 @@ static void print_help(FILE *out, const char *prog) {
             "  User config:   $XDG_CONFIG_HOME/sbrun/config or ~/.config/sbrun/config\n"
             "  Format: writable_path=/path or optional_writable_path=/path\n"
             "          writable_dir=/path and optional_writable_dir=/path are also accepted\n"
-            "  Envdir: -e/--envdir VAR is CLI-only; VAR must be [A-Za-z_][A-Za-z0-9_]*\n",
+            "  Envdir:   -e/--envdir VAR is CLI-only; VAR must be [A-Za-z_][A-Za-z0-9_]*\n"
+            "  Unsetenv: -v/--unsetenv VAR is CLI-only; some names are reserved\n",
             prog,
             prog);
 }
@@ -297,10 +299,19 @@ static bool cli_requests_help(int argc, char **argv) {
             }
             continue;
         }
+        if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--unsetenv") == 0) {
+            if (i + 1 < argc) {
+                ++i;
+            }
+            continue;
+        }
         if (strncmp(argv[i], "--writable=", 11) == 0) {
             continue;
         }
         if (strncmp(argv[i], "--envdir=", 9) == 0) {
+            continue;
+        }
+        if (strncmp(argv[i], "--unsetenv=", 11) == 0) {
             continue;
         }
         break;
@@ -317,13 +328,15 @@ static bool cli_requests_version(int argc, char **argv) {
             return false;
         }
         if (strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--writable") == 0 ||
-            strcmp(argv[i], "-e") == 0 || strcmp(argv[i], "--envdir") == 0) {
+            strcmp(argv[i], "-e") == 0 || strcmp(argv[i], "--envdir") == 0 ||
+            strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--unsetenv") == 0) {
             if (i + 1 < argc) {
                 ++i;
             }
             continue;
         }
-        if (strncmp(argv[i], "--writable=", 11) == 0 || strncmp(argv[i], "--envdir=", 9) == 0) {
+        if (strncmp(argv[i], "--writable=", 11) == 0 || strncmp(argv[i], "--envdir=", 9) == 0 ||
+            strncmp(argv[i], "--unsetenv=", 11) == 0) {
             continue;
         }
         break;
@@ -535,7 +548,7 @@ static void load_user_config_writable_dirs(struct strlist *dirs,
     free(path);
 }
 
-static bool valid_envdir_name(const char *name) {
+static bool valid_env_name(const char *name) {
     if (!name || name[0] == '\0') {
         return false;
     }
@@ -550,10 +563,41 @@ static bool valid_envdir_name(const char *name) {
     return true;
 }
 
+static bool unsetenv_name_is_reserved(const char *name) {
+    static const char *reserved[] = {
+        "PATH",
+        "PWD",
+        "HOME",
+        "TMPDIR",
+        "HISTFILE",
+        "SHELL",
+        "SBRUN_ACTIVE",
+        "USER",
+        "LOGNAME",
+        "TERM",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "BASH_SILENCE_DEPRECATION_WARNING",
+    };
+
+    if (strncmp(name, "SBBASH_", 7) == 0) {
+        return true;
+    }
+
+    for (size_t i = 0; i < sizeof(reserved) / sizeof(reserved[0]); ++i) {
+        if (strcmp(name, reserved[i]) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static void parse_cli_options(int argc,
                               char **argv,
                               struct strlist *dirs,
                               struct strlist *envdir_vars,
+                              struct strlist *unsetenv_vars,
                               int *arg_index,
                               bool *force_command) {
     int i = 1;
@@ -577,10 +621,30 @@ static void parse_cli_options(int argc,
             if (i + 1 >= argc) {
                 dief("%s requires an environment variable name", argv[i]);
             }
-            if (!valid_envdir_name(argv[i + 1])) {
+            if (!valid_env_name(argv[i + 1])) {
                 dief("invalid envdir variable name %s", argv[i + 1]);
             }
+            if (strlist_contains(unsetenv_vars, argv[i + 1])) {
+                dief("cannot use --envdir and --unsetenv for the same variable %s", argv[i + 1]);
+            }
             strlist_append_unique_owned(envdir_vars, xstrdup(argv[i + 1]));
+            i += 2;
+            continue;
+        }
+        if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--unsetenv") == 0) {
+            if (i + 1 >= argc) {
+                dief("%s requires an environment variable name", argv[i]);
+            }
+            if (!valid_env_name(argv[i + 1])) {
+                dief("invalid unsetenv variable name %s", argv[i + 1]);
+            }
+            if (unsetenv_name_is_reserved(argv[i + 1])) {
+                dief("cannot unset reserved environment variable %s", argv[i + 1]);
+            }
+            if (strlist_contains(envdir_vars, argv[i + 1])) {
+                dief("cannot use --envdir and --unsetenv for the same variable %s", argv[i + 1]);
+            }
+            strlist_append_unique_owned(unsetenv_vars, xstrdup(argv[i + 1]));
             i += 2;
             continue;
         }
@@ -598,10 +662,31 @@ static void parse_cli_options(int argc,
             if (value[0] == '\0') {
                 dief("--envdir requires an environment variable name");
             }
-            if (!valid_envdir_name(value)) {
+            if (!valid_env_name(value)) {
                 dief("invalid envdir variable name %s", value);
             }
+            if (strlist_contains(unsetenv_vars, value)) {
+                dief("cannot use --envdir and --unsetenv for the same variable %s", value);
+            }
             strlist_append_unique_owned(envdir_vars, xstrdup(value));
+            ++i;
+            continue;
+        }
+        if (strncmp(argv[i], "--unsetenv=", 11) == 0) {
+            const char *value = argv[i] + 11;
+            if (value[0] == '\0') {
+                dief("--unsetenv requires an environment variable name");
+            }
+            if (!valid_env_name(value)) {
+                dief("invalid unsetenv variable name %s", value);
+            }
+            if (unsetenv_name_is_reserved(value)) {
+                dief("cannot unset reserved environment variable %s", value);
+            }
+            if (strlist_contains(envdir_vars, value)) {
+                dief("cannot use --envdir and --unsetenv for the same variable %s", value);
+            }
+            strlist_append_unique_owned(unsetenv_vars, xstrdup(value));
             ++i;
             continue;
         }
@@ -788,7 +873,8 @@ static void sanitize_env(const char *workdir,
                          const char *user_name,
                          const char *shell_path,
                          const char *envdir_root,
-                         const struct strlist *envdir_vars) {
+                         const struct strlist *envdir_vars,
+                         const struct strlist *unsetenv_vars) {
     const char *term = getenv("TERM");
     const char *lang = getenv("LANG");
     const char *lc_all = getenv("LC_ALL");
@@ -852,6 +938,10 @@ static void sanitize_env(const char *workdir,
             setenv(envdir_vars->items[i], envdir, 1);
             free(envdir);
         }
+    }
+
+    for (size_t i = 0; i < unsetenv_vars->len; ++i) {
+        unsetenv(unsetenv_vars->items[i]);
     }
 }
 
@@ -984,13 +1074,14 @@ int main(int argc, char **argv) {
     struct strlist raw_extra_writable_dirs = {0};
     struct strlist raw_optional_writable_dirs = {0};
     struct strlist envdir_vars = {0};
+    struct strlist unsetenv_vars = {0};
     load_system_config_writable_dirs(&raw_extra_writable_dirs, &raw_optional_writable_dirs, xdg_config_dirs);
     ensure_user_config_exists(host_home, xdg_config_home);
     load_user_config_writable_dirs(&raw_extra_writable_dirs, &raw_optional_writable_dirs, host_home, xdg_config_home);
 
     int arg_index = 1;
     bool force_command = false;
-    parse_cli_options(argc, argv, &raw_extra_writable_dirs, &envdir_vars, &arg_index, &force_command);
+    parse_cli_options(argc, argv, &raw_extra_writable_dirs, &envdir_vars, &unsetenv_vars, &arg_index, &force_command);
 
     struct strlist extra_writable_dirs = {0};
     struct strlist extra_writable_files = {0};
@@ -1016,7 +1107,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    sanitize_env(workdir, tmpdir, histfile, host_home, user_name, shell_path, envdir_root, &envdir_vars);
+    sanitize_env(workdir, tmpdir, histfile, host_home, user_name, shell_path, envdir_root, &envdir_vars, &unsetenv_vars);
     close_extra_fds();
 
     const char *tty_path = ttyname(STDIN_FILENO);

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import os
 import pty
 import select
@@ -208,6 +206,7 @@ def test_help_output(impl: Path, built_binary: Path, runtime_env: dict[str, str]
     assert "--version" in out
     assert "--writable PATH" in out
     assert "--envdir VAR" in out
+    assert "--unsetenv VAR" in out
 
 
 @pytest.mark.parametrize("impl", IMPLEMENTATIONS)
@@ -488,3 +487,68 @@ def test_envdir_flag_rejects_invalid_names(
     result = run_impl(impl, "-e", "BAD-NAME", "python3", "-c", 'print("nope")', env=runtime_env, check=False)
     assert result.returncode != 0
     assert "invalid envdir variable name BAD-NAME" in result.stderr
+
+
+@pytest.mark.parametrize("impl", IMPLEMENTATIONS)
+def test_unsetenv_flag_removes_requested_variables(
+    impl: Path,
+    built_binary: Path,
+    runtime_env: dict[str, str],
+) -> None:
+    stamp = time.time_ns()
+    var1 = f"SBRUN_TEST_UNSETENV_{stamp}"
+    var2 = f"SBRUN_TEST_UNSETENV_B_{stamp}"
+    env = dict(runtime_env, TEST_ENV_NAMES=f"{var1}:{var2}", **{var1: "one", var2: "two"})
+    out = run_impl(
+        impl,
+        "-v",
+        var1,
+        "--unsetenv",
+        var1,
+        f"--unsetenv={var2}",
+        "python3",
+        "-c",
+        'import os; names=os.environ["TEST_ENV_NAMES"].split(":"); '
+        'print("\\n".join(f"{name}={int(name in os.environ)}" for name in names))',
+        env=env,
+    ).stdout
+    assert f"{var1}=0" in out
+    assert f"{var2}=0" in out
+
+
+@pytest.mark.parametrize("impl", IMPLEMENTATIONS)
+def test_unsetenv_flag_rejects_invalid_names(
+    impl: Path,
+    built_binary: Path,
+    runtime_env: dict[str, str],
+) -> None:
+    result = run_impl(impl, "-v", "BAD-NAME", "python3", "-c", 'print("nope")', env=runtime_env, check=False)
+    assert result.returncode != 0
+    assert "invalid unsetenv variable name BAD-NAME" in result.stderr
+
+
+@pytest.mark.parametrize("impl", IMPLEMENTATIONS)
+def test_unsetenv_flag_rejects_reserved_names(
+    impl: Path,
+    built_binary: Path,
+    runtime_env: dict[str, str],
+) -> None:
+    result = run_impl(impl, "--unsetenv", "PATH", "python3", "-c", 'print("nope")', env=runtime_env, check=False)
+    assert result.returncode != 0
+    assert "cannot unset reserved environment variable PATH" in result.stderr
+
+
+@pytest.mark.parametrize("impl", IMPLEMENTATIONS)
+@pytest.mark.parametrize("order", ["envdir-first", "unsetenv-first"])
+def test_unsetenv_flag_conflicts_with_envdir(
+    impl: Path,
+    order: str,
+    built_binary: Path,
+    runtime_env: dict[str, str],
+) -> None:
+    stamp = time.time_ns()
+    name = f"SBRUN_TEST_CONFLICT_{stamp}"
+    args = ("-e", name, "--unsetenv", name) if order == "envdir-first" else ("-v", name, "--envdir", name)
+    result = run_impl(impl, *args, "python3", "-c", 'print("nope")', env=runtime_env, check=False)
+    assert result.returncode != 0
+    assert f"cannot use --envdir and --unsetenv for the same variable {name}" in result.stderr

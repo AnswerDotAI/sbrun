@@ -58,6 +58,7 @@ The test suite covers:
 - direct command mode and shell-flag mode
 - writable directory and exact-file allow-lists
 - envdir behavior via `-e/--envdir`
+- unsetenv behavior via `-v/--unsetenv`
 - redirect guarding for stdout/stderr
 
 These tests are macOS-specific and need to run outside any parent sandbox that
