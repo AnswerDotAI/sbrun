@@ -37,7 +37,7 @@ latest_asset_url() {
     endpoint="${SBRUN_INSTALL_LATEST_URL_ENDPOINT:-https://latest.fast.ai/latest/${repo}/.gz}"
     url="$(curl -fsSL "$endpoint")"
     case "$url" in
-        http://*|https://*|file://*) printf '%s\n' "$url" ;;
+        http://*|https://*) printf '%s\n' "$url" ;;
         *) dief "could not determine latest release asset url from ${endpoint}" ;;
     esac
 }
@@ -99,7 +99,7 @@ else
     dief "HOME or XDG_CONFIG_HOME is required to install user config"
 fi
 configdir="${xdg_config_home}/sbrun"
-configpath="${configdir}/config"
+configpath="${configdir}/config.toml"
 
 tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/sbrun-install.XXXXXX")"
 cleanup() {
@@ -119,8 +119,7 @@ mkdir -p "${tmpdir}/pkg"
 tar -C "${tmpdir}/pkg" -xzf "${tmpdir}/${asset}"
 
 [ -f "${tmpdir}/pkg/sbrun" ] || dief "release archive is missing sbrun"
-[ -f "${tmpdir}/pkg/sbrun.pl" ] || dief "release archive is missing sbrun.pl"
-[ -f "${tmpdir}/pkg/sbrun.default.conf" ] || dief "release archive is missing sbrun.default.conf"
+[ -f "${tmpdir}/pkg/sbrun.default.toml" ] || dief "release archive is missing sbrun.default.toml"
 
 use_sudo=0
 if need_sudo_for_path "$bindir"; then
@@ -131,9 +130,8 @@ fi
 run_as_root mkdir -p "$bindir"
 mkdir -p "$configdir"
 run_as_root install -m 0755 "${tmpdir}/pkg/sbrun" "${bindir}/sbrun"
-run_as_root install -m 0755 "${tmpdir}/pkg/sbrun.pl" "${bindir}/sbrun.pl"
 if [ ! -f "$configpath" ]; then
-    install -m 0644 "${tmpdir}/pkg/sbrun.default.conf" "$configpath"
+    install -m 0644 "${tmpdir}/pkg/sbrun.default.toml" "$configpath"
     config_note="installed"
 else
     config_note="kept existing"

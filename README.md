@@ -1,49 +1,37 @@
 # sbrun
 
-`sbrun` launches commands under the macOS sandbox and only allows writes beneath the directory where `sbrun` was started.
+`sbrun` launches commands under the macOS sandbox and only allows writes beneath
+the current directory tree plus paths you explicitly opt into.
+
+The implementation is a single Rust crate:
+
+- the `sbrun` binary is the CLI
+- the same crate also exposes a Python `sbrun.exec(...)` API via PyO3
+- the binary applies the sandbox directly through `libsandbox`
 
 ## Install
 
-Install the latest release:
+Install the latest macOS arm64 release:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/AnswerDotAI/sbrun/main/install.sh | bash
 ```
 
-Install from PyPI into a Python environment:
+Build locally:
 
 ```sh
-pip install sbrun
+cargo build --release
 ```
 
-The installer:
-
-- resolves the latest macOS arm64 release tarball via `https://latest.fast.ai/latest/AnswerDotAI/sbrun/.gz`
-- downloads that tarball and verifies it with `SHA256SUMS`
-- installs `sbrun` and `sbrun.pl` into `bin`
-- installs the default user config to `$XDG_CONFIG_HOME/sbrun/config` or `~/.config/sbrun/config` only if no config is already present
-- defaults to `/opt/homebrew` when it exists, otherwise `/usr/local`
-
-The PyPI wheel is macOS arm64 only. It installs the native `sbrun` binary into
-your Python environment's `bin/`. On first run, `sbrun` seeds
-`$XDG_CONFIG_HOME/sbrun/config` or `~/.config/sbrun/config` with the built-in
-default config if you do not already have one.
-
-You can override the install location:
+Install the Python extension into an active virtualenv:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/AnswerDotAI/sbrun/main/install.sh | PREFIX=/usr/local bash
-```
-
-You can also pin a release:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/AnswerDotAI/sbrun/main/install.sh | SBRUN_INSTALL_VERSION=0.1.0 bash
+maturin develop --release
 ```
 
 ## Use
 
-Interactive shell:
+Start an interactive login shell:
 
 ```sh
 cd /path/to/project
@@ -54,98 +42,74 @@ Run a command directly:
 
 ```sh
 cd /path/to/project
-sbrun ipython --profile-dir=.ipython profile list
+sbrun python3 app.py
+```
+
+Run a shell snippet with your current `$SHELL`:
+
+```sh
+cd /path/to/project
+sbrun -c 'touch ok.txt && echo hello'
 ```
 
 Allow writes to an extra directory:
 
 ```sh
 cd /path/to/project
-sbrun -w /tmp python3 -c 'open("/tmp/sbrun-demo", "w").write("ok")'
+sbrun --write /tmp -- python3 -c 'open("/tmp/sbrun-demo", "w").write("ok")'
 ```
 
-Set specific environment variables to project-local directories:
+Set environment variables to project-local directories:
 
 ```sh
 cd /path/to/project
-sbrun -e IPYTHONDIR -e MPLCONFIGDIR ipython
+sbrun --env-dir IPYTHONDIR --env-dir MPLCONFIGDIR -- ipython
 ```
 
-Use the long form when you prefer:
+Remove selected variables from the child environment:
 
 ```sh
 cd /path/to/project
-sbrun --envdir=XDG_CACHE_HOME --envdir=XDG_STATE_HOME python3 app.py
+sbrun --unset-env GITHUB_API_KEY --unset-env OPENAI_API_KEY -- python3 app.py
 ```
 
-Remove specific environment variables from the child process:
+If the command itself starts with `-`, use `--` to stop option parsing:
 
 ```sh
 cd /path/to/project
-sbrun -v GITHUB_API_KEY --unsetenv=OPENAI_API_KEY python3 app.py
+sbrun -- -lc 'printf hello\n'
 ```
 
-Run a shell snippet:
-
-```sh
-cd /path/to/project
-sbrun -lc 'touch ok.txt && echo hello'
-```
-
-You can combine `sbrun` options with shell mode:
-
-```sh
-cd /path/to/project
-sbrun -w /tmp -lc 'echo hi > /tmp/hi.txt'
-```
-
-If you need to stop parsing `sbrun` options and force command mode, use `--`:
-
-```sh
-cd /path/to/project
-sbrun -w /tmp -- ipython --profile-dir=/tmp/ipython
-```
-
-The Perl variant is used the same way:
-
-```sh
-cd /path/to/project
-./sbrun.pl ipython --profile-dir=.ipython profile list
-```
-
-Help is available in both variants:
+Help and version:
 
 ```sh
 sbrun --help
 sbrun --version
-./sbrun.pl --help
-./sbrun.pl --version
 ```
 
-## Properties
+## CLI
 
-- reads are broadly allowed, writes are confined to the launch directory tree
-- with no arguments, `sbrun` launches your `$SHELL` as an interactive login shell
-- with arguments, `sbrun` runs that command directly, preserving flags and argv
-- if the first argument starts with `-`, `sbrun` passes those flags to your shell
-- `-w PATH` or `--writable PATH` adds an extra writable file or directory; you can repeat it
-- `-e VAR` or `--envdir VAR` sets `VAR` to `.sbrun/VAR`; you can repeat it
-- `-v VAR` or `--unsetenv VAR` removes `VAR` from the child environment; you can repeat it
+- `-w, --write PATH`: allow writes to a regular file or directory; repeatable
+- `-d, --env-dir VAR`: set `VAR` to `.sbrun/VAR`; repeatable
+- `-u, --unset-env VAR`: remove `VAR` from the child environment; repeatable
+- `-c, --command STRING`: run `$SHELL -lc STRING`
+- `--config PATH`: load that TOML file and ignore the standard config locations
+- `--no-config`: ignore config files entirely
+- `--`: stop parsing `sbrun` options
+
+Behavior:
+
+- with no command, `sbrun` launches your `$SHELL` as an interactive login shell
+- with `-c/--command`, `sbrun` runs `$SHELL -lc STRING`
+- otherwise `sbrun` `exec`s the given command directly
+- `SBRUN_ACTIVE=1` is exported in the child environment
 - `HOME` stays your real home directory when one is available
 - `TMPDIR` is set to `/tmp`
-- the shell's normal history file is writable by default
-- `SBRUN_ACTIVE=1` is exported in the child environment so shells can show a sandbox indicator if desired
-- extra file descriptors `>= 3` are closed before entering the sandbox
-- on macOS, if stdout or stderr is redirected to a regular file outside the
-  allowed writable paths, `sbrun` refuses to start unless you set
-  `SBBASH_ALLOW_STDIO_REDIRECTS=1`
+- the shell history file is writable by default
+- stdout/stderr redirected to regular files outside allowed writable paths are rejected unless `SBRUN_ALLOW_STDIO_REDIRECTS=1`
 
-For example, you can use `SBRUN_ACTIVE` in your shell prompt logic instead of
-having `sbrun` override `PS1`, `PROMPT_COMMAND`, or similar shell-specific
-customizations.
-
-If your bash login setup already sources `~/.bashrc`, you can prepend a
-padlock when running inside `sbrun` with:
+For bash prompt logic, you can use `SBRUN_ACTIVE` without replacing an existing
+`PROMPT_COMMAND` or `PS1`. Put this in `~/.bashrc`:
 
 ```bash
 sbrun_prompt_prefix() {
@@ -166,92 +130,67 @@ case "$(declare -p PROMPT_COMMAND 2>/dev/null)" in
   *)
     case ";${PROMPT_COMMAND:-};" in
       *";sbrun_prompt_prefix;"*) ;;
-      *)
-        PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND; }sbrun_prompt_prefix"
-        ;;
+      *) PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND; }sbrun_prompt_prefix" ;;
     esac
     ;;
 esac
 ```
 
-This keeps any existing `PROMPT_COMMAND` and `PS1` in place and adds the
-padlock after other prompt setup has run. If your login shell does not source
-`~/.bashrc`, put the same snippet in `~/.bash_profile` instead.
-
-Development, build, test, and release notes live in `DEV.md`.
+If your login shell does not source `~/.bashrc`, put the same snippet in
+`~/.bash_profile`.
 
 ## Config
 
-Global extra writable paths can be set in:
+`sbrun` reads TOML config from:
 
-- `$XDG_CONFIG_DIRS/.../sbrun/config`
-- `$XDG_CONFIG_HOME/sbrun/config`
-- `~/.config/sbrun/config` when `XDG_CONFIG_HOME` is unset
+- `$XDG_CONFIG_DIRS/.../sbrun/config.toml`
+- `$XDG_CONFIG_HOME/sbrun/config.toml`
+- `~/.config/sbrun/config.toml` when `XDG_CONFIG_HOME` is unset
 
-Use one entry per line:
+`--config PATH` replaces those defaults with one explicit file. `--no-config`
+skips config loading entirely.
 
-```ini
-writable_path=/tmp
-writable_path=~/scratch
-optional_writable_path=~/.cache
+Example:
+
+```toml
+version = 1
+
+write = ["/tmp", "/Volumes/scratch"]
+optional_write = [
+  "~/.cache",
+  "~/Library/Caches",
+]
 ```
 
-`writable_path=...` is required and errors if the path does not resolve to an
-existing regular file or directory.
-`optional_writable_path=...` is ignored when the path does not resolve to an
-existing regular file or directory, which is useful for shared default configs.
-For compatibility, `writable_dir=...` and `optional_writable_dir=...` are also
-accepted.
+Rules:
 
-Configured paths and `-w/--writable` paths are combined. System config is
-loaded first, then user config, then CLI flags.
+- `version` must be `1` when present
+- `write` entries are required and error if they do not resolve
+- `optional_write` entries are ignored when they do not resolve
+- config paths must be absolute or start with `~/`
+- `env_dir` and `unset_env` are CLI-only
 
-`-e/--envdir VAR` and `-v/--unsetenv VAR` are CLI-only. Each requested envdir
-variable is set to `.sbrun/VAR`, and those directories are created on demand
-inside the launch directory. Each requested unsetenv variable is removed from
-the child environment before the command runs.
+The repo ships a practical default config in [`sbrun.default.toml`](/Users/jhoward/git/sbrun/sbrun.default.toml).
 
-## Envdir
+## Python
 
-`-e VAR`, `--envdir VAR`, and `--envdir=VAR` all mean the same thing.
+The Python API is intentionally minimal and follows the same `exec` model as the
+CLI:
 
-- `VAR` must be a valid environment variable name: `[A-Za-z_][A-Za-z0-9_]*`
-- `sbrun` creates `.sbrun/` only when at least one envdir flag is used
-- each requested variable gets a directory at `.sbrun/VAR`
-- the child process sees `VAR` set to that directory, even if `VAR` already had a different value
-- repeated `-e/--envdir` flags are fine; duplicate names are ignored after the first
-- envdir settings are CLI-only and are not read from config files
+```python
+import sbrun
 
-This is mainly useful for tools that want a writable state or cache directory
-without granting broad write access to your real home directory. Typical
-examples are `IPYTHONDIR`, `MPLCONFIGDIR`, `XDG_CACHE_HOME`, and
-`XDG_STATE_HOME`.
+sbrun.exec(
+    ["python3", "app.py"],
+    write=["/tmp"],
+    env_dir=["IPYTHONDIR"],
+    unset_env=["GITHUB_API_KEY"],
+)
+```
 
-## Unsetenv
+On success, `sbrun.exec(...)` does not return because it replaces the current
+process image. On failure, it raises a Python exception.
 
-`-v VAR`, `--unsetenv VAR`, and `--unsetenv=VAR` all mean the same thing.
+## Development
 
-- `VAR` must be a valid environment variable name: `[A-Za-z_][A-Za-z0-9_]*`
-- repeated `-v/--unsetenv` flags are fine; duplicate names are ignored after the first
-- unsetenv settings are CLI-only and are not read from config files
-- a variable cannot be requested by both `--envdir` and `--unsetenv`
-- reserved names such as `PATH`, `HOME`, `SHELL`, `TMPDIR`, `HISTFILE`, `SBRUN_ACTIVE`, and `SBBASH_*` are rejected
-
-This is useful when you want the sandboxed child process to inherit most of
-your environment, but not selected credentials or tool-specific variables.
-Because `-v` is now an `sbrun` option, use `sbrun -- -v` if you need to pass
-`-v` through to the shell.
-
-The installed default global config includes a practical allow-list of common
-user state/cache locations such as:
-
-- `/tmp`
-- `~/.config`
-- `~/.cache`
-- `~/.local/share`
-- `~/.local/state`
-- `~/.ipython`
-- `~/.jupyter`
-- `~/Library/Caches`
-
-Edit the global config or your user config to tighten or extend that list.
+Build, test, and release notes live in [`DEV.md`](/Users/jhoward/git/sbrun/DEV.md).

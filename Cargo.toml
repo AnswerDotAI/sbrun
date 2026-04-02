@@ -1,0 +1,28 @@
+[package]
+name = "sbrun"
+version = "0.0.3"
+edition = "2024"
+rust-version = "1.85"
+description = "Run commands under the macOS sandbox with writes confined to selected paths"
+license = "MIT"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "sbrun"
+path = "src/main.rs"
+
+[dependencies]
+libc = "0.2"
+pyo3 = { version = "0.28.2", features = ["abi3-py39", "extension-module"] }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+toml = "0.9"
+
+[build-dependencies]
+pyo3-build-config = "0.28.3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

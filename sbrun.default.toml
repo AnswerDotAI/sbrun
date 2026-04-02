@@ -1,0 +1,22 @@
+version = 1
+
+optional_write = [
+  "/tmp",
+  "~/.cache",
+  "~/.config",
+  "~/.local/share",
+  "~/.local/state",
+  "~/.ipython",
+  "~/.jupyter",
+  "~/.matplotlib",
+  "~/.npm",
+  "~/.pnpm-store",
+  "~/.cargo",
+  "~/.rustup",
+  "~/.conda",
+  "~/Library/Caches",
+  "~/Library/Logs",
+  "~/Library/Jupyter",
+  "~/Library/Python",
+  "~/Library/Application Support/Jupyter",
+]

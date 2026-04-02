@@ -1,14 +1,14 @@
+Cargo.lock
 tags
 .sbrun-home/
 .sbrun-tmp/
 .sbrun_history
 .sbrun-smoke-*
 .sbrun/
-*.o
-sbrun
 .pytest_cache/
 __pycache__/
 build/
 dist/
 py-dist/
 *.egg-info/
+target/

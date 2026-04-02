@@ -4,7 +4,15 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-version="$(tr -d '\n' < VERSION)"
+version="$(python3 - <<'PY'
+import tomllib
+from pathlib import Path
+
+cargo = tomllib.loads(Path("Cargo.toml").read_text())
+print(cargo["package"]["version"])
+PY
+)"
+
 case "$version" in
     [0-9]*.[0-9]*.[0-9]*) ;;
     *) echo "release.sh: unsupported version format: $version" >&2; exit 1 ;;

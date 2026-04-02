@@ -16,19 +16,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.x"
+          python-version: "3.12"
 
-      - name: Install test dependency
-        run: python -m pip install --upgrade pip pytest
-
-      - name: Build
-        run: make
+      - name: Install maturin
+        run: python -m pip install --upgrade pip maturin
 
       - name: Test
-        run: pytest -q
+        run: tools/test.sh
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Build Python wheel
+        run: maturin build --release --strip --out dist/py-dist
 
       - name: Package release assets
         run: |
@@ -37,7 +43,7 @@ jobs:
           arch="$(uname -m)"
           asset="sbrun-${tag}-macos-${arch}.tar.gz"
           mkdir -p dist/pkg
-          cp sbrun sbrun.pl README.md sbrun.default.conf VERSION dist/pkg/
+          cp target/release/sbrun README.md sbrun.default.toml dist/pkg/
           tar -C dist/pkg -czf "dist/${asset}" .
           shasum -a 256 "dist/${asset}" > dist/SHA256SUMS
           printf 'RELEASE_ASSET=%s\n' "dist/${asset}" >> "$GITHUB_ENV"
@@ -48,7 +54,7 @@ jobs:
         run: |
           set -euo pipefail
           tag="${GITHUB_REF_NAME}"
-          assets=("${RELEASE_ASSET}" dist/SHA256SUMS)
+          assets=("${RELEASE_ASSET}" dist/SHA256SUMS dist/py-dist/*.whl)
           if gh release view "${tag}" >/dev/null 2>&1; then
             gh release upload "${tag}" "${assets[@]}" --clobber
           else
