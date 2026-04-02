@@ -62,7 +62,25 @@ jobs:
             gh release create "${tag}" "${assets[@]}" --verify-tag --generate-notes
           fi
 
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels
+          path: dist/py-dist/*.whl
+
+  pypi:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - name: Download wheel artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: wheels
+          path: dist/
+
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          packages-dir: dist/py-dist/
+          packages-dir: dist/
