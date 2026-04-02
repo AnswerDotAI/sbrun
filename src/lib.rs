@@ -22,6 +22,33 @@ pub use cli::{Command as CliCommand, help_text, parse as parse_cli};
 pub use config::ConfigMode;
 pub use error::{Error, Result};
 
+pub fn cli_main_with_args<I: IntoIterator<Item = OsString>>(args: I) {
+    let args: Vec<OsString> = args.into_iter().collect();
+    let program = args.first().map_or_else(|| OsString::from("sbrun"), |a| a.clone());
+    let program = program.to_string_lossy();
+    match parse_cli(args) {
+        Ok(CliCommand::Help) => {
+            print!("{}", help_text(&program));
+        }
+        Ok(CliCommand::Version) => {
+            println!("sbrun {}", env!("CARGO_PKG_VERSION"));
+        }
+        Ok(CliCommand::Run { target, options }) => match run(target, options) {
+            Ok(_) => unreachable!(),
+            Err(err) => {
+                eprintln!("sbrun: {err}");
+                std::process::exit(111);
+            }
+        },
+        Err(err) => {
+            eprintln!("sbrun: {err}");
+            eprintln!();
+            eprint!("{}", help_text(&program));
+            std::process::exit(111);
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Options {
     pub write: Vec<PathBuf>,
@@ -298,9 +325,20 @@ fn py_exec(
         .map_err(|err| PyRuntimeError::new_err(err.to_string()))
 }
 
+pub fn cli_main() { cli_main_with_args(env::args_os()) }
+
+#[pyfunction]
+fn _cli_main(py: Python<'_>) {
+    let sys = py.import("sys").expect("failed to import sys");
+    let argv: Vec<String> = sys.getattr("argv").expect("no sys.argv")
+        .extract().expect("sys.argv not list of strings");
+    cli_main_with_args(argv.into_iter().map(OsString::from));
+}
+
 #[pymodule]
 fn sbrun(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(py_exec, module)?)?;
+    module.add_function(wrap_pyfunction!(_cli_main, module)?)?;
     module.add("__version__", env!("CARGO_PKG_VERSION"))?;
     Ok(())
 }

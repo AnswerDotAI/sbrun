@@ -17,5 +17,8 @@ classifiers = [
   "Topic :: Utilities",
 ]
 
+[project.scripts]
+sbrun = "sbrun:_cli_main"
+
 [tool.maturin]
 bindings = "pyo3"
