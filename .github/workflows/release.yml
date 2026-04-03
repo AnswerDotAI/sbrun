@@ -80,15 +80,12 @@ jobs:
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           tag="${GITHUB_REF_NAME}"
           assets=(artifacts/sbrun-*.tar.gz artifacts/SHA256SUMS artifacts/py-dist/*.whl)
-          if gh release view "${tag}" >/dev/null 2>&1; then
-            gh release upload "${tag}" "${assets[@]}" --clobber
-          else
-            gh release create "${tag}" "${assets[@]}" --generate-notes
-          fi
+          gh release create "${tag}" "${assets[@]}" --repo "${GH_REPO}" --generate-notes
 
   pypi:
     needs: build
