@@ -6,7 +6,6 @@ optional_write = [
   "/dev/tty",
   "/dev/ptmx",
   "~/.cache",
-  "~/.config",
   "~/.local/share",
   "~/.local/state",
   "~/.ipython",
