@@ -22,14 +22,15 @@ Developer workflow and release notes for `sbrun`.
 Build and install a debug binary plus Python extension:
 
 ```sh
-./local-build.sh
+./tools/local-build.sh
 ```
 
 Or manually:
 
 ```sh
+python -m pip install -e '.[dev]'
 cargo build
-maturin develop  # if maturin is available
+maturin develop
 ```
 
 ## Testing
@@ -47,6 +48,7 @@ That runs:
 - `pytest -q tests/test_sbrun.py` — integration tests (sandbox enforcement, config, environment)
 
 Tests run on both macOS and Linux.
+GitHub Actions runs the same suite from `.github/workflows/test.yml` on pushes to `main`.
 
 ## Versioning
 
@@ -66,7 +68,6 @@ Push a tag like `v0.0.3` to trigger the GitHub Actions release workflow in
 The workflow builds on both macOS and Linux in parallel:
 
 - installs Rust and Python
-- runs `tools/test.sh`
 - builds `target/release/sbrun`
 - builds the Python wheel with `maturin build --release --strip`
 - packages platform-specific tarballs (e.g. `sbrun-v0.0.3-macos-arm64.tar.gz`,

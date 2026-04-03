@@ -36,9 +36,6 @@ jobs:
       - name: Install maturin
         run: python -m pip install --upgrade pip maturin
 
-      - name: Test
-        run: tools/test.sh
-
       - name: Build release binary
         run: cargo build --release
 
@@ -55,7 +52,7 @@ jobs:
           mkdir -p dist/pkg
           cp target/release/sbrun README.md "$default_conf" dist/pkg/
           tar -C dist/pkg -czf "dist/${asset}" .
-          sha256sum "dist/${asset}" > "dist/SHA256SUMS-${{ matrix.platform }}"
+          shasum -a 256 "dist/${asset}" > "dist/SHA256SUMS-${{ matrix.platform }}"
           printf 'RELEASE_ASSET=%s\n' "dist/${asset}" >> "$GITHUB_ENV"
 
       - name: Upload build artifacts
