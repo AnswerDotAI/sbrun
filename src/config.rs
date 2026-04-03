@@ -12,6 +12,11 @@ const DEFAULT_XDG_CONFIG_DIRS: &str = "/opt/homebrew/etc/xdg:/usr/local/etc/xdg:
 #[cfg(target_os = "linux")]
 const DEFAULT_XDG_CONFIG_DIRS: &str = "/etc/xdg";
 
+#[cfg(target_os = "macos")]
+const DEFAULT_CONFIG: &str = include_str!("../sbrun.default.macos.toml");
+#[cfg(target_os = "linux")]
+const DEFAULT_CONFIG: &str = include_str!("../sbrun.default.linux.toml");
+
 #[derive(Debug, Clone, Default)]
 pub enum ConfigMode {
     #[default]
@@ -39,12 +44,18 @@ struct RawConfig {
 
 pub fn load(mode: &ConfigMode, home: Option<&Path>) -> Result<WriteConfig> {
     let mut config = WriteConfig::default();
-    for path in config_paths(mode, home) {
+    let paths = config_paths(mode, home);
+    if matches!(mode, ConfigMode::Default) && !paths.iter().any(|p| p.exists()) {
+        if let Some(path) = user_config_path(home) {
+            ensure_default_config(&path);
+        }
+    }
+    for path in &paths {
         if !path.exists() {
             if matches!(mode, ConfigMode::Explicit(_)) {
                 return Err(Error::io_path(
                     "read config file",
-                    &path,
+                    path,
                     std::io::Error::from(std::io::ErrorKind::NotFound),
                 ));
             }
@@ -99,6 +110,15 @@ fn user_config_path(home: Option<&Path>) -> Option<PathBuf> {
     home.map(|home| home.join(".config").join("sbrun").join("config.toml"))
 }
 
+fn ensure_default_config(path: &Path) {
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if fs::write(path, DEFAULT_CONFIG).is_ok() {
+        eprintln!("sbrun: created default config at {}", path.display());
+    }
+}
+
 fn validate_config_paths(config_path: &Path, entries: &[PathBuf]) -> Result<()> {
     for entry in entries {
         if entry.is_absolute() || starts_with_tilde(entry) {
@@ -114,4 +134,77 @@ fn validate_config_paths(config_path: &Path, entries: &[PathBuf]) -> Result<()> 
 
 fn starts_with_tilde(path: &Path) -> bool {
     path.as_os_str().as_encoded_bytes().starts_with(b"~")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn load_none_returns_empty() {
+        let cfg = load(&ConfigMode::None, Some(Path::new("/home/test"))).unwrap();
+        assert!(cfg.required.is_empty());
+        assert!(cfg.optional.is_empty());
+    }
+
+    #[test]
+    fn load_explicit_missing_errors() {
+        assert!(load(&ConfigMode::Explicit(PathBuf::from("/nonexistent/config.toml")), None).is_err());
+    }
+
+    #[test]
+    fn load_explicit_valid() {
+        let dir = std::env::temp_dir().join("sbrun-cfg-test");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let cfg_path = dir.join("config.toml");
+        fs::write(&cfg_path, "version = 1\nwrite = [\"/tmp\"]\noptional_write = [\"/nonexistent\"]\n").unwrap();
+        let cfg = load(&ConfigMode::Explicit(cfg_path), None).unwrap();
+        assert_eq!(cfg.required, vec![PathBuf::from("/tmp")]);
+        assert_eq!(cfg.optional, vec![PathBuf::from("/nonexistent")]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_rejects_bad_version() {
+        let dir = std::env::temp_dir().join("sbrun-cfg-badver");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let cfg_path = dir.join("config.toml");
+        fs::write(&cfg_path, "version = 99\n").unwrap();
+        assert!(load(&ConfigMode::Explicit(cfg_path), None).is_err());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_rejects_relative_paths() {
+        let dir = std::env::temp_dir().join("sbrun-cfg-rel");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let cfg_path = dir.join("config.toml");
+        fs::write(&cfg_path, "version = 1\nwrite = [\"relative/path\"]\n").unwrap();
+        assert!(load(&ConfigMode::Explicit(cfg_path), None).is_err());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn validate_allows_absolute_and_tilde() {
+        let cfg = Path::new("test.toml");
+        validate_config_paths(cfg, &[PathBuf::from("/abs"), PathBuf::from("~/rel")]).unwrap();
+    }
+
+    #[test]
+    fn validate_rejects_relative() {
+        let cfg = Path::new("test.toml");
+        assert!(validate_config_paths(cfg, &[PathBuf::from("no/leading/slash")]).is_err());
+    }
+
+    #[test]
+    fn user_config_path_from_home() {
+        // When XDG_CONFIG_HOME is not set, falls back to ~/.config
+        let p = user_config_path(Some(Path::new("/home/test")));
+        // May use XDG_CONFIG_HOME if set in env, or fall back
+        assert!(p.is_some());
+    }
 }

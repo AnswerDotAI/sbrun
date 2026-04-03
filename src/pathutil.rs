@@ -200,3 +200,67 @@ fn fd_path(fd: i32) -> Option<PathBuf> {
     let link = format!("/proc/self/fd/{fd}");
     fs::read_link(&link).ok().and_then(|p| fs::canonicalize(&p).ok().or(Some(p)))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn expand_home_tilde() {
+        let home = Path::new("/home/test");
+        assert_eq!(expand_home(Path::new("~/foo"), Some(home)).unwrap(), PathBuf::from("/home/test/foo"));
+        assert_eq!(expand_home(Path::new("~"), Some(home)).unwrap(), PathBuf::from("/home/test"));
+    }
+
+    #[test]
+    fn expand_home_absolute_unchanged() {
+        assert_eq!(expand_home(Path::new("/tmp/foo"), Some(Path::new("/home/x"))).unwrap(), PathBuf::from("/tmp/foo"));
+    }
+
+    #[test]
+    fn expand_home_no_home_errors() {
+        assert!(expand_home(Path::new("~/foo"), None).is_err());
+    }
+
+    #[test]
+    fn expand_home_other_user_errors() {
+        assert!(expand_home(Path::new("~other/foo"), Some(Path::new("/home/me"))).is_err());
+    }
+
+    #[test]
+    fn path_allowed_in_workdir() {
+        let allowed = AllowedWrites::default();
+        assert!(path_is_allowed(Path::new("/work/sub/file"), Path::new("/work"), &allowed));
+    }
+
+    #[test]
+    fn path_allowed_in_extra_dir() {
+        let allowed = AllowedWrites { dirs: vec![PathBuf::from("/extra")], files: vec![] };
+        assert!(path_is_allowed(Path::new("/extra/sub"), Path::new("/work"), &allowed));
+    }
+
+    #[test]
+    fn path_allowed_exact_file() {
+        let allowed = AllowedWrites { dirs: vec![], files: vec![PathBuf::from("/etc/hosts")] };
+        assert!(path_is_allowed(Path::new("/etc/hosts"), Path::new("/work"), &allowed));
+        assert!(!path_is_allowed(Path::new("/etc/passwd"), Path::new("/work"), &allowed));
+    }
+
+    #[test]
+    fn path_outside_not_allowed() {
+        let allowed = AllowedWrites::default();
+        assert!(!path_is_allowed(Path::new("/etc/passwd"), Path::new("/work"), &allowed));
+    }
+
+    #[test]
+    fn push_unique_deduplicates() {
+        let mut allowed = AllowedWrites::default();
+        push_unique(&mut allowed, ResolvedTarget::Dir(PathBuf::from("/tmp")));
+        push_unique(&mut allowed, ResolvedTarget::Dir(PathBuf::from("/tmp")));
+        assert_eq!(allowed.dirs.len(), 1);
+        push_unique(&mut allowed, ResolvedTarget::File(PathBuf::from("/f")));
+        push_unique(&mut allowed, ResolvedTarget::File(PathBuf::from("/f")));
+        assert_eq!(allowed.files.len(), 1);
+    }
+}

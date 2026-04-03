@@ -360,9 +360,9 @@ fn sbrun(module: &Bound<'_, PyModule>) -> PyResult<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::ffi::OsString;
-
-    use crate::{CliCommand, ConfigMode, RunTarget, parse_cli};
+    use crate::{CliCommand, ConfigMode, RunTarget, parse_cli,
+        valid_env_name, reserved_unset_env, dedup, set_env, remove_env, dedup_validate_env_names};
+    use std::ffi::{OsStr, OsString};
 
     #[test]
     fn parse_direct_command() {
@@ -405,5 +405,99 @@ mod tests {
             panic!("expected shell command")
         };
         assert_eq!(text, "echo hi");
+    }
+
+    #[test]
+    fn parse_write_and_unset() {
+        let parsed = parse_cli([
+            OsString::from("sbrun"), OsString::from("-w"), OsString::from("/tmp"),
+            OsString::from("--unset-env"), OsString::from("FOO"),
+            OsString::from("--"), OsString::from("echo"), OsString::from("hi"),
+        ]).unwrap();
+        let CliCommand::Run { options, .. } = parsed else { panic!() };
+        assert_eq!(options.write, vec![std::path::PathBuf::from("/tmp")]);
+        assert_eq!(options.unset_env, vec!["FOO".to_string()]);
+    }
+
+    #[test]
+    fn parse_no_config() {
+        let parsed = parse_cli([
+            OsString::from("sbrun"), OsString::from("--no-config"),
+            OsString::from("echo"), OsString::from("hi"),
+        ]).unwrap();
+        let CliCommand::Run { options, .. } = parsed else { panic!() };
+        assert!(matches!(options.config, ConfigMode::None));
+    }
+
+    #[test]
+    fn parse_help() {
+        let parsed = parse_cli([OsString::from("sbrun"), OsString::from("--help")]).unwrap();
+        assert!(matches!(parsed, CliCommand::Help));
+    }
+
+    #[test]
+    fn parse_version() {
+        let parsed = parse_cli([OsString::from("sbrun"), OsString::from("--version")]).unwrap();
+        assert!(matches!(parsed, CliCommand::Version));
+    }
+
+    #[test]
+    fn valid_env_names() {
+        assert!(valid_env_name("FOO"));
+        assert!(valid_env_name("_BAR"));
+        assert!(valid_env_name("A123_B"));
+        assert!(!valid_env_name(""));
+        assert!(!valid_env_name("1BAD"));
+        assert!(!valid_env_name("NO-DASH"));
+        assert!(!valid_env_name("NO.DOT"));
+    }
+
+    #[test]
+    fn reserved_env_blocked() {
+        assert!(reserved_unset_env("PATH"));
+        assert!(reserved_unset_env("HOME"));
+        assert!(reserved_unset_env("SBRUN_ACTIVE"));
+        assert!(!reserved_unset_env("MY_CUSTOM_VAR"));
+    }
+
+    #[test]
+    fn dedup_removes_duplicates() {
+        let mut v = vec!["a".into(), "b".into(), "a".into(), "c".into(), "b".into()];
+        dedup(&mut v);
+        assert_eq!(v, vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn env_map_set_and_remove() {
+        let mut env = vec![
+            (OsString::from("A"), OsString::from("1")),
+            (OsString::from("B"), OsString::from("2")),
+        ];
+        set_env(&mut env, "A", OsStr::new("99"));
+        assert_eq!(env.iter().filter(|(k, _)| k == "A").count(), 1);
+        assert_eq!(env.iter().find(|(k, _)| k == "A").unwrap().1, "99");
+        remove_env(&mut env, "B");
+        assert!(!env.iter().any(|(k, _)| k == "B"));
+    }
+
+    #[test]
+    fn dedup_validate_catches_conflict() {
+        let mut ed = vec!["FOO".into()];
+        let mut ue = vec!["FOO".into()];
+        assert!(dedup_validate_env_names(&mut ed, &mut ue).is_err());
+    }
+
+    #[test]
+    fn dedup_validate_catches_reserved() {
+        let mut ed = vec![];
+        let mut ue = vec!["PATH".into()];
+        assert!(dedup_validate_env_names(&mut ed, &mut ue).is_err());
+    }
+
+    #[test]
+    fn dedup_validate_catches_invalid_name() {
+        let mut ed = vec!["BAD-NAME".into()];
+        let mut ue = vec![];
+        assert!(dedup_validate_env_names(&mut ed, &mut ue).is_err());
     }
 }

@@ -1,17 +1,22 @@
 # sbrun
 
-`sbrun` launches commands under the macOS sandbox and only allows writes beneath
-the current directory tree plus paths you explicitly opt into.
+`sbrun` launches commands in a sandbox that only allows writes beneath the
+current directory tree plus paths you explicitly opt into.
+
+- **macOS**: uses the Seatbelt sandbox via `libsandbox`
+- **Linux**: uses unprivileged user namespaces + mount namespaces (inspired by
+  [bubblewrap](https://github.com/containers/bubblewrap)) — no root or setuid
+  required
 
 The implementation is a single Rust crate:
 
 - the `sbrun` binary is the CLI
 - the same crate also exposes a Python `sbrun.exec(...)` API via PyO3
-- the binary applies the sandbox directly through `libsandbox`
+- platform-specific sandboxing is selected at compile time
 
 ## Install
 
-Install the latest macOS arm64 release:
+Install the latest release:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/AnswerDotAI/sbrun/main/install.sh | bash
@@ -170,7 +175,28 @@ Rules:
 - config paths must be absolute or start with `~/`
 - `env_dir` and `unset_env` are CLI-only
 
-The repo ships a practical default config in [`sbrun.default.toml`](/Users/jhoward/git/sbrun/sbrun.default.toml).
+On first run, if no config file exists, `sbrun` auto-creates
+`~/.config/sbrun/config.toml` with sensible platform defaults (writable
+`/tmp`, `~/.cache`, `~/.config`, etc). The defaults are also shipped in the
+repo as `sbrun.default.macos.toml` and `sbrun.default.linux.toml`.
+
+## Platform notes
+
+### macOS
+
+The sandbox is applied via the Seatbelt profile language and `libsandbox`.
+All reads are allowed; writes are confined to the working directory and
+configured paths.
+
+### Linux
+
+The sandbox uses unprivileged user namespaces (`CLONE_NEWUSER`) and mount
+namespaces (`CLONE_NEWNS`), the same approach used by
+[bubblewrap](https://github.com/containers/bubblewrap). The root filesystem
+is bind-mounted read-only, then writable paths are bind-mounted back on top.
+No root privileges or setuid installation is required.
+
+Requires `kernel.unprivileged_userns_clone=1` (the default on most distros).
 
 ## Python
 
@@ -193,4 +219,4 @@ process image. On failure, it raises a Python exception.
 
 ## Development
 
-Build, test, and release notes live in [`DEV.md`](/Users/jhoward/git/sbrun/DEV.md).
+Build, test, and release notes live in [`DEV.md`](DEV.md).

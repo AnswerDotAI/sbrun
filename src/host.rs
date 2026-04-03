@@ -146,3 +146,36 @@ fn c_os_string(ptr: *const libc::c_char) -> Option<OsString> {
     let bytes = unsafe { CStr::from_ptr(ptr) }.to_bytes().to_vec();
     Some(OsString::from_vec(bytes))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn history_bash() { assert_eq!(history_file_name(Path::new("/bin/bash")), ".bash_history"); }
+
+    #[test]
+    fn history_zsh() { assert_eq!(history_file_name(Path::new("/bin/zsh")), ".zsh_history"); }
+
+    #[test]
+    fn history_other() { assert_eq!(history_file_name(Path::new("/bin/fish")), ".sh_history"); }
+
+    #[test]
+    fn bash_detection() {
+        assert!(shell_is_bash(Path::new("/bin/bash")));
+        assert!(!shell_is_bash(Path::new("/bin/zsh")));
+    }
+
+    #[test]
+    fn login_arg0_prefix() {
+        assert_eq!(login_arg0(Path::new("/bin/bash")), OsString::from("-bash"));
+        assert_eq!(login_arg0(Path::new("/usr/bin/zsh")), OsString::from("-zsh"));
+    }
+
+    #[test]
+    fn current_host_succeeds() {
+        let host = current().unwrap();
+        assert!(host.shell.is_absolute());
+    }
+}

@@ -53,13 +53,16 @@ pub fn apply(
 fn bind(src: &Path, dest: &Path, readonly: bool) -> Result<()> {
     let s = c_path(src)?;
     let d = c_path(dest)?;
-    check(unsafe { libc::mount(s.as_ptr(), d.as_ptr(), ptr::null(),
-        libc::MS_BIND | libc::MS_REC, ptr::null()) },
-        "bind-mount")?;
+    if unsafe { libc::mount(s.as_ptr(), d.as_ptr(), ptr::null(),
+        libc::MS_BIND | libc::MS_REC, ptr::null()) } != 0 {
+        return Err(Error::Sandbox(format!("bind-mount {}: {}", src.display(), std::io::Error::last_os_error())));
+    }
     let mut flags = libc::MS_BIND | libc::MS_REMOUNT | libc::MS_REC | libc::MS_NOSUID | libc::MS_NODEV;
     if readonly { flags |= libc::MS_RDONLY; }
-    check(unsafe { libc::mount(ptr::null(), d.as_ptr(), ptr::null(), flags, ptr::null()) },
-        "remount")
+    if unsafe { libc::mount(ptr::null(), d.as_ptr(), ptr::null(), flags, ptr::null()) } != 0 {
+        return Err(Error::Sandbox(format!("remount {}: {}", dest.display(), std::io::Error::last_os_error())));
+    }
+    Ok(())
 }
 
 fn tmpfs(dest: &Path) -> Result<()> {

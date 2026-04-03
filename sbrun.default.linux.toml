@@ -5,7 +5,6 @@ optional_write = [
   "/dev/null",
   "/dev/tty",
   "/dev/ptmx",
-  "/dev/pts",
   "~/.cache",
   "~/.config",
   "~/.local/share",

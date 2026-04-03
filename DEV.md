@@ -6,34 +6,31 @@ Developer workflow and release notes for `sbrun`.
 
 - `src/main.rs`: CLI entrypoint
 - `src/lib.rs`: shared runtime plus PyO3 module
-- `src/sandbox.rs`: the small `unsafe` bridge to `libsandbox`
-- `tests/cli.sh`: end-to-end shell integration tests
+- `src/sandbox.rs`: platform dispatcher (`#[cfg]` selects backend)
+- `src/sandbox_macos.rs`: macOS Seatbelt FFI bridge
+- `src/sandbox_linux.rs`: Linux user/mount namespace sandbox
+- `src/profile.rs`: Seatbelt profile generation (macOS only)
+- `src/config.rs`: TOML config loading
+- `src/pathutil.rs`: path resolution and validation
+- `src/host.rs`: host info detection (shell, home, user)
+- `src/error.rs`: error types
+- `tests/test_sbrun.py`: pytest integration tests
 - `tools/test.sh`: standard local verification entrypoint
-
-The repo intentionally ships one implementation: Rust. There is no C fallback,
-Perl fallback, or compatibility layer for the old config or CLI.
 
 ## Local Build
 
-Build the CLI:
+Build and install a debug binary plus Python extension:
+
+```sh
+./local-build.sh
+```
+
+Or manually:
 
 ```sh
 cargo build
+maturin develop  # if maturin is available
 ```
-
-Build an optimized binary:
-
-```sh
-cargo build --release
-```
-
-Install the Python extension into the active virtualenv:
-
-```sh
-maturin develop --release
-```
-
-The compiled binary applies the sandbox profile directly through `libsandbox`.
 
 ## Testing
 
@@ -45,13 +42,11 @@ tools/test.sh
 
 That runs:
 
-- `cargo test`
+- `cargo test` — Rust unit tests (CLI parsing, env helpers, config, path utils, host detection)
 - `cargo build`
-- `tests/cli.sh`
-- a `maturin develop` smoke test for the Python `exec` API when `maturin` is available
+- `pytest -q tests/test_sbrun.py` — integration tests (sandbox enforcement, config, environment)
 
-These integration tests are macOS-specific and need to run outside any parent
-sandbox that would block nested seatbelt operations.
+Tests run on both macOS and Linux.
 
 ## Versioning
 
@@ -68,15 +63,15 @@ tools/bump.sh
 Push a tag like `v0.0.3` to trigger the GitHub Actions release workflow in
 `.github/workflows/release.yml`.
 
-The workflow:
+The workflow builds on both macOS and Linux in parallel:
 
 - installs Rust and Python
 - runs `tools/test.sh`
 - builds `target/release/sbrun`
 - builds the Python wheel with `maturin build --release --strip`
-- packages `sbrun`, `README.md`, and `sbrun.default.toml`
-- uploads a versioned tarball like `sbrun-v0.0.3-macos-arm64.tar.gz`
-- uploads `SHA256SUMS`
+- packages platform-specific tarballs (e.g. `sbrun-v0.0.3-macos-arm64.tar.gz`,
+  `sbrun-v0.0.3-linux-x86_64.tar.gz`)
+- uploads all assets and wheels to a single GitHub release
 
 For the local release flow:
 
@@ -92,5 +87,13 @@ Publish the Python package with:
 maturin publish --release --strip
 ```
 
-This repo targets macOS arm64 wheels built from the same single Rust crate used
-for the CLI.
+The CI workflow publishes both macOS and Linux wheels to PyPI automatically.
+
+## Platform notes
+
+**macOS**: sandbox is applied via Seatbelt (`libsandbox`). Requires macOS.
+
+**Linux**: sandbox uses unprivileged user namespaces + mount namespaces
+(inspired by [bubblewrap](https://github.com/containers/bubblewrap)). No root
+or setuid required. Requires `kernel.unprivileged_userns_clone=1` (default on
+most distros).
