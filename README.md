@@ -5,8 +5,9 @@ current directory tree plus paths you explicitly opt into.
 
 - **macOS**: uses the Seatbelt sandbox via `libsandbox`
 - **Linux**: uses unprivileged user namespaces + mount namespaces (inspired by
-  [bubblewrap](https://github.com/containers/bubblewrap)) — no root or setuid
-  required
+  [bubblewrap](https://github.com/containers/bubblewrap)) by default; when the
+  native `sbrun` binary is installed setuid root, it automatically switches to
+  a privileged mount-namespace backend
 
 The implementation is a single Rust crate:
 
@@ -92,12 +93,19 @@ sbrun --help
 sbrun --version
 ```
 
+Install the persistent Linux sysctl fix and apply it:
+
+```sh
+sudo sbrun --kernel-install
+```
+
 ## CLI
 
 - `-w, --write PATH`: allow writes to a regular file or directory; repeatable
 - `-d, --env-dir VAR`: set `VAR` to `.sbrun/VAR`; repeatable
 - `-u, --unset-env VAR`: remove `VAR` from the child environment; repeatable
 - `-c, --command STRING`: run `$SHELL -lc STRING`
+- `--kernel-install`: install `/etc/sysctl.d/90-sbrun.conf` and run `sysctl --system` (Linux only; must be root, e.g. via `sudo`)
 - `--config PATH`: load that TOML file and ignore the standard config locations
 - `--no-config`: ignore config files entirely
 - `--`: stop parsing `sbrun` options
@@ -106,6 +114,7 @@ Behavior:
 
 - with no command, `sbrun` launches your `$SHELL` as an interactive login shell
 - with `-c/--command`, `sbrun` runs `$SHELL -lc STRING`
+- with `--kernel-install`, `sbrun` installs the persistent Linux sysctl config and runs `sysctl --system`
 - otherwise `sbrun` `exec`s the given command directly
 - `SBRUN_ACTIVE=1` is exported in the child environment
 - `HOME` stays your real home directory when one is available
@@ -194,7 +203,22 @@ The sandbox uses unprivileged user namespaces (`CLONE_NEWUSER`) and mount
 namespaces (`CLONE_NEWNS`), the same approach used by
 [bubblewrap](https://github.com/containers/bubblewrap). The root filesystem
 is bind-mounted read-only, then writable paths are bind-mounted back on top.
-No root privileges or setuid installation is required.
+Default installs require neither root nor setuid.
+
+If the native `sbrun` binary is installed root-owned and setuid, `sbrun`
+automatically switches to a privileged Linux backend. In that mode it skips
+`CLONE_NEWUSER`, sets up the mount namespace as root, then drops back to the
+calling user before `exec()`. That avoids AppArmor's unprivileged user
+namespace restriction without changing kernel settings.
+
+Example optional install:
+
+```sh
+sudo install -o root -g root -m 4755 ./target/release/sbrun /usr/local/bin/sbrun
+```
+
+The setuid mode only applies to the native binary, not a Python console-script
+wrapper.
 
 Requires `kernel.unprivileged_userns_clone=1` (the default on most distros).
 
@@ -213,20 +237,30 @@ unshare --user --map-root-user --mount sh -c 'id -u; mount | head -1'
 
 If that fails, `sbrun` will fail too.
 
-The fix on affected Ubuntu systems is:
+Two ways to make `sbrun` work on affected Ubuntu systems:
+
+1. keep the default unprivileged install and let `sbrun` install the persistent host setting:
 
 ```sh
-sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+sudo sbrun --kernel-install
 ```
 
-To make it persistent:
+That writes:
 
 ```sh
-cat <<'EOF' | sudo tee /etc/sysctl.d/90-sbrun.conf
+cat <<'EOF'
 kernel.unprivileged_userns_clone=1
 kernel.apparmor_restrict_unprivileged_userns=0
 EOF
-sudo sysctl --system
+```
+
+and then runs `sysctl --system`.
+
+2. install the native `sbrun` binary setuid root instead, which needs no
+kernel setting change:
+
+```sh
+sudo install -o root -g root -m 4755 sbrun /usr/local/bin/sbrun
 ```
 
 GitHub-hosted Linux runners currently hit this restriction too, so this repo

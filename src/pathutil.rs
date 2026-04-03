@@ -98,9 +98,11 @@ pub fn refuse_redirected_regular_stdio(workdir: &Path, allowed: &AllowedWrites) 
 
         let final_path = match fd_path(fd) {
             Some(path) => path,
-            None => return Err(Error::Usage(format!(
-                "fd {fd} is redirected to a regular file outside the sandbox check path; refusing to start"
-            ))),
+            None => {
+                return Err(Error::Usage(format!(
+                    "fd {fd} is redirected to a regular file outside the sandbox check path; refusing to start"
+                )));
+            }
         };
         if !path_is_allowed(&final_path, workdir, allowed) {
             return Err(Error::Usage(format!(
@@ -190,15 +192,21 @@ fn fd_path(fd: i32) -> Option<PathBuf> {
     if unsafe { libc::fcntl(fd, libc::F_GETPATH, raw.as_mut_ptr()) } == -1 || raw[0] == 0 {
         return None;
     }
-    let raw_path = unsafe { std::ffi::CStr::from_ptr(raw.as_ptr()) }.to_bytes().to_vec();
-    Some(fs::canonicalize(PathBuf::from(OsString::from_vec(raw_path.clone())))
-        .unwrap_or_else(|_| PathBuf::from(OsString::from_vec(raw_path))))
+    let raw_path = unsafe { std::ffi::CStr::from_ptr(raw.as_ptr()) }
+        .to_bytes()
+        .to_vec();
+    Some(
+        fs::canonicalize(PathBuf::from(OsString::from_vec(raw_path.clone())))
+            .unwrap_or_else(|_| PathBuf::from(OsString::from_vec(raw_path))),
+    )
 }
 
 #[cfg(target_os = "linux")]
 fn fd_path(fd: i32) -> Option<PathBuf> {
     let link = format!("/proc/self/fd/{fd}");
-    fs::read_link(&link).ok().and_then(|p| fs::canonicalize(&p).ok().or(Some(p)))
+    fs::read_link(&link)
+        .ok()
+        .and_then(|p| fs::canonicalize(&p).ok().or(Some(p)))
 }
 
 #[cfg(test)]
@@ -209,13 +217,22 @@ mod tests {
     #[test]
     fn expand_home_tilde() {
         let home = Path::new("/home/test");
-        assert_eq!(expand_home(Path::new("~/foo"), Some(home)).unwrap(), PathBuf::from("/home/test/foo"));
-        assert_eq!(expand_home(Path::new("~"), Some(home)).unwrap(), PathBuf::from("/home/test"));
+        assert_eq!(
+            expand_home(Path::new("~/foo"), Some(home)).unwrap(),
+            PathBuf::from("/home/test/foo")
+        );
+        assert_eq!(
+            expand_home(Path::new("~"), Some(home)).unwrap(),
+            PathBuf::from("/home/test")
+        );
     }
 
     #[test]
     fn expand_home_absolute_unchanged() {
-        assert_eq!(expand_home(Path::new("/tmp/foo"), Some(Path::new("/home/x"))).unwrap(), PathBuf::from("/tmp/foo"));
+        assert_eq!(
+            expand_home(Path::new("/tmp/foo"), Some(Path::new("/home/x"))).unwrap(),
+            PathBuf::from("/tmp/foo")
+        );
     }
 
     #[test]
@@ -231,26 +248,52 @@ mod tests {
     #[test]
     fn path_allowed_in_workdir() {
         let allowed = AllowedWrites::default();
-        assert!(path_is_allowed(Path::new("/work/sub/file"), Path::new("/work"), &allowed));
+        assert!(path_is_allowed(
+            Path::new("/work/sub/file"),
+            Path::new("/work"),
+            &allowed
+        ));
     }
 
     #[test]
     fn path_allowed_in_extra_dir() {
-        let allowed = AllowedWrites { dirs: vec![PathBuf::from("/extra")], files: vec![] };
-        assert!(path_is_allowed(Path::new("/extra/sub"), Path::new("/work"), &allowed));
+        let allowed = AllowedWrites {
+            dirs: vec![PathBuf::from("/extra")],
+            files: vec![],
+        };
+        assert!(path_is_allowed(
+            Path::new("/extra/sub"),
+            Path::new("/work"),
+            &allowed
+        ));
     }
 
     #[test]
     fn path_allowed_exact_file() {
-        let allowed = AllowedWrites { dirs: vec![], files: vec![PathBuf::from("/etc/hosts")] };
-        assert!(path_is_allowed(Path::new("/etc/hosts"), Path::new("/work"), &allowed));
-        assert!(!path_is_allowed(Path::new("/etc/passwd"), Path::new("/work"), &allowed));
+        let allowed = AllowedWrites {
+            dirs: vec![],
+            files: vec![PathBuf::from("/etc/hosts")],
+        };
+        assert!(path_is_allowed(
+            Path::new("/etc/hosts"),
+            Path::new("/work"),
+            &allowed
+        ));
+        assert!(!path_is_allowed(
+            Path::new("/etc/passwd"),
+            Path::new("/work"),
+            &allowed
+        ));
     }
 
     #[test]
     fn path_outside_not_allowed() {
         let allowed = AllowedWrites::default();
-        assert!(!path_is_allowed(Path::new("/etc/passwd"), Path::new("/work"), &allowed));
+        assert!(!path_is_allowed(
+            Path::new("/etc/passwd"),
+            Path::new("/work"),
+            &allowed
+        ));
     }
 
     #[test]

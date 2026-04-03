@@ -12,6 +12,7 @@ use crate::{
 pub enum Command {
     Help,
     Version,
+    KernelInstall,
     Run { target: RunTarget, options: Options },
 }
 
@@ -28,6 +29,7 @@ where
     let mut config = ConfigMode::Default;
     let mut shell_command = None;
     let mut command = Vec::new();
+    let mut kernel_install = false;
     let mut stop_parsing = false;
 
     while let Some(arg) = args.next() {
@@ -46,6 +48,10 @@ where
         }
         if arg == OsStr::new("--version") {
             return Ok(Command::Version);
+        }
+        if arg == OsStr::new("--kernel-install") {
+            kernel_install = true;
+            continue;
         }
         if arg == OsStr::new("--no-config") {
             if matches!(config, ConfigMode::Explicit(_)) {
@@ -122,6 +128,20 @@ where
             "use either --command/-c or a direct command, not both".into(),
         ));
     }
+    if kernel_install {
+        if shell_command.is_some()
+            || !command.is_empty()
+            || !write.is_empty()
+            || !env_dir.is_empty()
+            || !unset_env.is_empty()
+            || !matches!(config, ConfigMode::Default)
+        {
+            return Err(Error::Usage(
+                "--kernel-install cannot be combined with other options or commands".into(),
+            ));
+        }
+        return Ok(Command::KernelInstall);
+    }
 
     let target = if let Some(command) = shell_command {
         RunTarget::ShellCommand(command)
@@ -146,12 +166,13 @@ pub fn help_text(program: &str) -> String {
     format!(
         "Usage: {program} [options] [--] [command [args...]]\n\
 \n\
-Run commands under the macOS sandbox with writes confined to the current\n\
-directory tree plus explicitly allowed paths.\n\
+Run commands in a sandbox with writes confined to the current directory\n\
+tree plus explicitly allowed paths.\n\
 \n\
 Options:\n\
   -h, --help             Show this help and exit\n\
       --version          Show version and exit\n\
+      --kernel-install   Install Linux sysctl settings and run sysctl --system\n\
   -w, --write PATH       Allow writes to PATH; may be repeated\n\
   -d, --env-dir VAR      Set VAR to .sbrun/VAR; may be repeated\n\
   -u, --unset-env VAR    Remove VAR from the child environment; may be repeated\n\
@@ -161,6 +182,7 @@ Options:\n\
   --                     Stop option parsing\n\
 \n\
 Behavior:\n\
+  With --kernel-install, install /etc/sysctl.d/90-sbrun.conf and apply it (Linux only; run as root).\n\
   With no command, start $SHELL as an interactive login shell.\n\
   With -c/--command, run $SHELL -lc STRING.\n\
   Otherwise run the given command directly.\n\

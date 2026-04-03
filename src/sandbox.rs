@@ -6,3 +6,5 @@ mod platform;
 mod platform;
 
 pub use platform::apply;
+#[cfg(target_os = "linux")]
+pub use platform::temporarily_drop_to_real_user;

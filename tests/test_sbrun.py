@@ -19,7 +19,7 @@ def tmp(tmp_path): return tmp_path
 
 def test_help():
     r = sbrun("--help")
-    for flag in ("--write PATH", "--env-dir VAR", "--unset-env VAR", "--config PATH", "--no-config"): assert flag in r.stdout
+    for flag in ("--kernel-install", "--write PATH", "--env-dir VAR", "--unset-env VAR", "--config PATH", "--no-config"): assert flag in r.stdout
 
 def test_version():
     cargo = Path(__file__).resolve().parent.parent / "Cargo.toml"
@@ -30,6 +30,13 @@ def test_version():
 def test_unknown_option():
     r = sbrun("--bogus", allow_fail=True)
     assert r.returncode != 0
+
+def test_kernel_install_requires_linux_root_or_sudo():
+    if IS_LINUX and os.getuid() == 0 and os.geteuid() == 0: pytest.skip("would modify host sysctl config")
+    r = sbrun("--kernel-install", allow_fail=True)
+    assert r.returncode != 0
+    expected = "only available on linux" if not IS_LINUX else "requires running as root"
+    assert expected in r.stderr.lower()
 
 # -- Environment --
 

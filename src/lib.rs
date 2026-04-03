@@ -1,3 +1,4 @@
+mod admin;
 mod cli;
 mod config;
 mod error;
@@ -25,7 +26,9 @@ pub use error::{Error, Result};
 
 pub fn cli_main_with_args<I: IntoIterator<Item = OsString>>(args: I) {
     let args: Vec<OsString> = args.into_iter().collect();
-    let program = args.first().map_or_else(|| OsString::from("sbrun"), |a| a.clone());
+    let program = args
+        .first()
+        .map_or_else(|| OsString::from("sbrun"), |a| a.clone());
     let program = program.to_string_lossy();
     match parse_cli(args) {
         Ok(CliCommand::Help) => {
@@ -34,6 +37,13 @@ pub fn cli_main_with_args<I: IntoIterator<Item = OsString>>(args: I) {
         Ok(CliCommand::Version) => {
             println!("sbrun {}", env!("CARGO_PKG_VERSION"));
         }
+        Ok(CliCommand::KernelInstall) => match admin::kernel_install() {
+            Ok(()) => {}
+            Err(err) => {
+                eprintln!("sbrun: {err}");
+                std::process::exit(111);
+            }
+        },
         Ok(CliCommand::Run { target, options }) => match run(target, options) {
             Ok(_) => unreachable!(),
             Err(err) => {
@@ -77,6 +87,9 @@ where
 }
 
 pub fn run(target: RunTarget, mut options: Options) -> Result<Infallible> {
+    #[cfg(target_os = "linux")]
+    let privilege_guard = sandbox::temporarily_drop_to_real_user()?;
+
     let host = host::current()?;
     let workdir = env::current_dir().map_err(|err| Error::io("get current directory", err))?;
     let workdir = workdir
@@ -106,6 +119,11 @@ pub fn run(target: RunTarget, mut options: Options) -> Result<Infallible> {
     );
     let mut command = build_command(target, &host.shell, &workdir, &env_map)?;
     host::close_extra_fds();
+
+    #[cfg(target_os = "linux")]
+    if let Some(guard) = privilege_guard {
+        guard.restore_root()?;
+    }
 
     #[cfg(target_os = "macos")]
     {
@@ -340,13 +358,18 @@ fn py_exec(
         .map_err(|err| PyRuntimeError::new_err(err.to_string()))
 }
 
-pub fn cli_main() { cli_main_with_args(env::args_os()) }
+pub fn cli_main() {
+    cli_main_with_args(env::args_os())
+}
 
 #[pyfunction]
 fn _cli_main(py: Python<'_>) {
     let sys = py.import("sys").expect("failed to import sys");
-    let argv: Vec<String> = sys.getattr("argv").expect("no sys.argv")
-        .extract().expect("sys.argv not list of strings");
+    let argv: Vec<String> = sys
+        .getattr("argv")
+        .expect("no sys.argv")
+        .extract()
+        .expect("sys.argv not list of strings");
     cli_main_with_args(argv.into_iter().map(OsString::from));
 }
 
@@ -360,8 +383,10 @@ fn sbrun(module: &Bound<'_, PyModule>) -> PyResult<()> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{CliCommand, ConfigMode, RunTarget, parse_cli,
-        valid_env_name, reserved_unset_env, dedup, set_env, remove_env, dedup_validate_env_names};
+    use crate::{
+        CliCommand, ConfigMode, RunTarget, dedup, dedup_validate_env_names, parse_cli, remove_env,
+        reserved_unset_env, set_env, valid_env_name,
+    };
     use std::ffi::{OsStr, OsString};
 
     #[test]
@@ -410,11 +435,19 @@ mod tests {
     #[test]
     fn parse_write_and_unset() {
         let parsed = parse_cli([
-            OsString::from("sbrun"), OsString::from("-w"), OsString::from("/tmp"),
-            OsString::from("--unset-env"), OsString::from("FOO"),
-            OsString::from("--"), OsString::from("echo"), OsString::from("hi"),
-        ]).unwrap();
-        let CliCommand::Run { options, .. } = parsed else { panic!() };
+            OsString::from("sbrun"),
+            OsString::from("-w"),
+            OsString::from("/tmp"),
+            OsString::from("--unset-env"),
+            OsString::from("FOO"),
+            OsString::from("--"),
+            OsString::from("echo"),
+            OsString::from("hi"),
+        ])
+        .unwrap();
+        let CliCommand::Run { options, .. } = parsed else {
+            panic!()
+        };
         assert_eq!(options.write, vec![std::path::PathBuf::from("/tmp")]);
         assert_eq!(options.unset_env, vec!["FOO".to_string()]);
     }
@@ -422,10 +455,15 @@ mod tests {
     #[test]
     fn parse_no_config() {
         let parsed = parse_cli([
-            OsString::from("sbrun"), OsString::from("--no-config"),
-            OsString::from("echo"), OsString::from("hi"),
-        ]).unwrap();
-        let CliCommand::Run { options, .. } = parsed else { panic!() };
+            OsString::from("sbrun"),
+            OsString::from("--no-config"),
+            OsString::from("echo"),
+            OsString::from("hi"),
+        ])
+        .unwrap();
+        let CliCommand::Run { options, .. } = parsed else {
+            panic!()
+        };
         assert!(matches!(options.config, ConfigMode::None));
     }
 
@@ -439,6 +477,28 @@ mod tests {
     fn parse_version() {
         let parsed = parse_cli([OsString::from("sbrun"), OsString::from("--version")]).unwrap();
         assert!(matches!(parsed, CliCommand::Version));
+    }
+
+    #[test]
+    fn parse_kernel_install() {
+        let parsed =
+            parse_cli([OsString::from("sbrun"), OsString::from("--kernel-install")]).unwrap();
+        assert!(matches!(parsed, CliCommand::KernelInstall));
+    }
+
+    #[test]
+    fn parse_kernel_install_rejects_other_options() {
+        let err = parse_cli([
+            OsString::from("sbrun"),
+            OsString::from("--kernel-install"),
+            OsString::from("--no-config"),
+        ])
+        .err()
+        .unwrap();
+        assert!(
+            err.to_string()
+                .contains("--kernel-install cannot be combined")
+        );
     }
 
     #[test]

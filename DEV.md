@@ -97,7 +97,11 @@ The CI workflow publishes both macOS and Linux wheels to PyPI automatically.
 
 **macOS**: sandbox is applied via Seatbelt (`libsandbox`). Requires macOS.
 
-**Linux**: sandbox uses unprivileged user namespaces + mount namespaces
-(inspired by [bubblewrap](https://github.com/containers/bubblewrap)). No root
-or setuid required. Requires `kernel.unprivileged_userns_clone=1` (default on
-most distros).
+**Linux**: default sandbox uses unprivileged user namespaces + mount
+namespaces (inspired by [bubblewrap](https://github.com/containers/bubblewrap)).
+When the native `sbrun` binary is installed setuid root, the same binary
+automatically switches to a privileged mount-namespace backend instead and
+drops back to the caller before `exec()`. Default unprivileged mode still
+requires `kernel.unprivileged_userns_clone=1` (default on most distros). The
+CLI also supports `sudo sbrun --kernel-install`, which writes
+`/etc/sysctl.d/90-sbrun.conf` and runs `sysctl --system` on Linux.

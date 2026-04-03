@@ -153,13 +153,19 @@ mod tests {
     use std::path::Path;
 
     #[test]
-    fn history_bash() { assert_eq!(history_file_name(Path::new("/bin/bash")), ".bash_history"); }
+    fn history_bash() {
+        assert_eq!(history_file_name(Path::new("/bin/bash")), ".bash_history");
+    }
 
     #[test]
-    fn history_zsh() { assert_eq!(history_file_name(Path::new("/bin/zsh")), ".zsh_history"); }
+    fn history_zsh() {
+        assert_eq!(history_file_name(Path::new("/bin/zsh")), ".zsh_history");
+    }
 
     #[test]
-    fn history_other() { assert_eq!(history_file_name(Path::new("/bin/fish")), ".sh_history"); }
+    fn history_other() {
+        assert_eq!(history_file_name(Path::new("/bin/fish")), ".sh_history");
+    }
 
     #[test]
     fn bash_detection() {
@@ -170,7 +176,10 @@ mod tests {
     #[test]
     fn login_arg0_prefix() {
         assert_eq!(login_arg0(Path::new("/bin/bash")), OsString::from("-bash"));
-        assert_eq!(login_arg0(Path::new("/usr/bin/zsh")), OsString::from("-zsh"));
+        assert_eq!(
+            login_arg0(Path::new("/usr/bin/zsh")),
+            OsString::from("-zsh")
+        );
     }
 
     #[test]

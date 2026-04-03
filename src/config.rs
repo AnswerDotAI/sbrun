@@ -150,7 +150,13 @@ mod tests {
 
     #[test]
     fn load_explicit_missing_errors() {
-        assert!(load(&ConfigMode::Explicit(PathBuf::from("/nonexistent/config.toml")), None).is_err());
+        assert!(
+            load(
+                &ConfigMode::Explicit(PathBuf::from("/nonexistent/config.toml")),
+                None
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -159,7 +165,11 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let cfg_path = dir.join("config.toml");
-        fs::write(&cfg_path, "version = 1\nwrite = [\"/tmp\"]\noptional_write = [\"/nonexistent\"]\n").unwrap();
+        fs::write(
+            &cfg_path,
+            "version = 1\nwrite = [\"/tmp\"]\noptional_write = [\"/nonexistent\"]\n",
+        )
+        .unwrap();
         let cfg = load(&ConfigMode::Explicit(cfg_path), None).unwrap();
         assert_eq!(cfg.required, vec![PathBuf::from("/tmp")]);
         assert_eq!(cfg.optional, vec![PathBuf::from("/nonexistent")]);
