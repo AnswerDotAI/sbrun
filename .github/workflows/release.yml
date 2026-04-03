@@ -87,7 +87,7 @@ jobs:
           if gh release view "${tag}" >/dev/null 2>&1; then
             gh release upload "${tag}" "${assets[@]}" --clobber
           else
-            gh release create "${tag}" "${assets[@]}" --verify-tag --generate-notes
+            gh release create "${tag}" "${assets[@]}" --generate-notes
           fi
 
   pypi:
