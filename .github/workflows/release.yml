@@ -83,7 +83,7 @@ jobs:
         run: |
           set -euo pipefail
           tag="${GITHUB_REF_NAME}"
-          assets=(artifacts/sbrun-*.tar.gz artifacts/SHA256SUMS artifacts/*.whl)
+          assets=(artifacts/sbrun-*.tar.gz artifacts/SHA256SUMS artifacts/py-dist/*.whl)
           if gh release view "${tag}" >/dev/null 2>&1; then
             gh release upload "${tag}" "${assets[@]}" --clobber
           else
@@ -105,4 +105,4 @@ jobs:
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          packages-dir: artifacts/
+          packages-dir: artifacts/py-dist
