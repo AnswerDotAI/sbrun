@@ -198,40 +198,39 @@ No root privileges or setuid installation is required.
 
 Requires `kernel.unprivileged_userns_clone=1` (the default on most distros).
 
-If Linux setup fails before your command starts, the host is usually blocking
-the namespace operations `sbrun` needs. Typical errors look like:
+On Ubuntu 24.04, the most common failure is AppArmor blocking unprivileged user
+namespaces. The usual symptom is that `sbrun` fails before starting your
+command with an error like:
 
-- `unshare ... Operation not permitted`
 - `write /proc/self/setgroups: Permission denied`
-- `write /proc/self/uid_map: Permission denied`
-- `write /proc/self/gid_map: Permission denied`
+- `write /proc/self/uid_map: Operation not permitted`
 
-Quick checks:
+You can confirm the host setup with:
 
 ```sh
-sysctl kernel.unprivileged_userns_clone 2>/dev/null || true
 unshare --user --map-root-user --mount sh -c 'id -u; mount | head -1'
 ```
 
-If that `unshare` command fails, `sbrun` will fail too.
+If that fails, `sbrun` will fail too.
 
-Common causes:
+The fix on affected Ubuntu systems is:
 
-- unprivileged user namespaces are disabled by distro or sysctl policy
-- AppArmor, SELinux, or another LSM is blocking user namespaces or map writes
-- a container, VM, or CI environment is using a seccomp/runtime policy that blocks `unshare` or mount namespace setup
+```sh
+sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+```
 
-Typical fixes:
+To make it persistent:
 
-- enable unprivileged user namespaces on the host
-- run `sbrun` outside the restrictive container or job sandbox
-- relax the container or CI policy so unprivileged user and mount namespaces are allowed
-- use a self-hosted runner or machine whose security policy permits this setup
+```sh
+cat <<'EOF' | sudo tee /etc/sysctl.d/90-sbrun.conf
+kernel.unprivileged_userns_clone=1
+kernel.apparmor_restrict_unprivileged_userns=0
+EOF
+sudo sysctl --system
+```
 
-On a normal Linux install where `unshare --user --map-root-user --mount ...`
-works, `sbrun` should work too. GitHub-hosted Linux runners currently do not
-allow the full setup needed for the Linux sandbox backend, so this repo only
-runs full sandbox integration tests on macOS in GitHub Actions.
+GitHub-hosted Linux runners currently hit this restriction too, so this repo
+only runs full sandbox integration tests on macOS in GitHub Actions.
 
 ## Python
 
