@@ -13,6 +13,7 @@ pub enum Command {
     Help,
     Version,
     KernelInstall,
+    PromptInit(Option<String>),
     Run { target: RunTarget, options: Options },
 }
 
@@ -30,6 +31,7 @@ where
     let mut shell_command = None;
     let mut command = Vec::new();
     let mut kernel_install = false;
+    let mut prompt_init = None;
     let mut stop_parsing = false;
 
     while let Some(arg) = args.next() {
@@ -51,6 +53,13 @@ where
         }
         if arg == OsStr::new("--kernel-install") {
             kernel_install = true;
+            continue;
+        }
+        if arg == OsStr::new("--prompt-init") {
+            if prompt_init.is_some() {
+                return Err(Error::Usage("--prompt-init may only be used once".into()));
+            }
+            prompt_init = Some(None);
             continue;
         }
         if arg == OsStr::new("--no-config") {
@@ -102,6 +111,15 @@ where
                     }
                     config = ConfigMode::Explicit(PathBuf::from(value));
                 }
+                "prompt-init" => {
+                    if prompt_init.is_some() {
+                        return Err(Error::Usage("--prompt-init may only be used once".into()));
+                    }
+                    let shell = value
+                        .into_string()
+                        .map_err(|_| Error::Usage("prompt-init shell must be utf-8".into()))?;
+                    prompt_init = Some(Some(shell));
+                }
                 _ => return Err(Error::Usage(format!("unknown option --{flag}"))),
             }
             continue;
@@ -129,7 +147,8 @@ where
         ));
     }
     if kernel_install {
-        if shell_command.is_some()
+        if prompt_init.is_some()
+            || shell_command.is_some()
             || !command.is_empty()
             || !write.is_empty()
             || !env_dir.is_empty()
@@ -141,6 +160,20 @@ where
             ));
         }
         return Ok(Command::KernelInstall);
+    }
+    if let Some(shell) = prompt_init {
+        if shell_command.is_some()
+            || !command.is_empty()
+            || !write.is_empty()
+            || !env_dir.is_empty()
+            || !unset_env.is_empty()
+            || !matches!(config, ConfigMode::Default)
+        {
+            return Err(Error::Usage(
+                "--prompt-init cannot be combined with other options or commands".into(),
+            ));
+        }
+        return Ok(Command::PromptInit(shell));
     }
 
     let target = if let Some(command) = shell_command {
@@ -173,6 +206,7 @@ Options:\n\
   -h, --help             Show this help and exit\n\
       --version          Show version and exit\n\
       --kernel-install   Install Linux sysctl settings and run sysctl --system\n\
+      --prompt-init      Print shell code to show a lock icon in sandboxed prompts\n\
   -w, --write PATH       Allow writes to PATH; may be repeated\n\
   -d, --env-dir VAR      Set VAR to .sbrun/VAR; may be repeated\n\
   -u, --unset-env VAR    Remove VAR from the child environment; may be repeated\n\
@@ -183,6 +217,7 @@ Options:\n\
 \n\
 Behavior:\n\
   With --kernel-install, install /etc/sysctl.d/90-sbrun.conf and apply it (Linux only; run as root).\n\
+  With --prompt-init[=bash|zsh], print shell init code for the lock icon prompt hook.\n\
   With no command, start $SHELL as an interactive login shell.\n\
   With -c/--command, run $SHELL -lc STRING.\n\
   Otherwise run the given command directly.\n\

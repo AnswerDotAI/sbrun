@@ -6,6 +6,7 @@ mod host;
 mod pathutil;
 #[cfg(target_os = "macos")]
 mod profile;
+mod prompt;
 mod sandbox;
 
 use std::{
@@ -39,6 +40,15 @@ pub fn cli_main_with_args<I: IntoIterator<Item = OsString>>(args: I) {
         }
         Ok(CliCommand::KernelInstall) => match admin::kernel_install() {
             Ok(()) => {}
+            Err(err) => {
+                eprintln!("sbrun: {err}");
+                std::process::exit(111);
+            }
+        },
+        Ok(CliCommand::PromptInit(shell)) => match prompt::init_script(shell.as_deref()) {
+            Ok(script) => {
+                print!("{script}");
+            }
             Err(err) => {
                 eprintln!("sbrun: {err}");
                 std::process::exit(111);
@@ -499,6 +509,34 @@ mod tests {
             err.to_string()
                 .contains("--kernel-install cannot be combined")
         );
+    }
+
+    #[test]
+    fn parse_prompt_init() {
+        let parsed = parse_cli([OsString::from("sbrun"), OsString::from("--prompt-init")]).unwrap();
+        assert!(matches!(parsed, CliCommand::PromptInit(None)));
+    }
+
+    #[test]
+    fn parse_prompt_init_with_shell() {
+        let parsed =
+            parse_cli([OsString::from("sbrun"), OsString::from("--prompt-init=zsh")]).unwrap();
+        let CliCommand::PromptInit(Some(shell)) = parsed else {
+            panic!("expected prompt-init command")
+        };
+        assert_eq!(shell, "zsh");
+    }
+
+    #[test]
+    fn parse_prompt_init_rejects_other_options() {
+        let err = parse_cli([
+            OsString::from("sbrun"),
+            OsString::from("--prompt-init"),
+            OsString::from("--no-config"),
+        ])
+        .err()
+        .unwrap();
+        assert!(err.to_string().contains("--prompt-init cannot be combined"));
     }
 
     #[test]

@@ -122,36 +122,22 @@ Behavior:
 - the shell history file is writable by default
 - stdout/stderr redirected to regular files outside allowed writable paths are rejected unless `SBRUN_ALLOW_STDIO_REDIRECTS=1`
 
-For bash prompt logic, you can use `SBRUN_ACTIVE` without replacing an existing
-`PROMPT_COMMAND` or `PS1`. Put this in `~/.bashrc`:
+To add a lock icon to sandboxed bash or zsh prompts, put this in your
+`~/.bashrc` or `~/.zshrc`:
 
-```bash
-sbrun_prompt_prefix() {
-  [[ ${SBRUN_ACTIVE:-} == 1 ]] || return
-  case $PS1 in
-    '🔒 '*) ;;
-    *) PS1="🔒 $PS1" ;;
-  esac
-}
-
-case "$(declare -p PROMPT_COMMAND 2>/dev/null)" in
-  "declare -a "*)
-    case " ${PROMPT_COMMAND[*]} " in
-      *" sbrun_prompt_prefix "*) ;;
-      *) PROMPT_COMMAND+=(sbrun_prompt_prefix) ;;
-    esac
-    ;;
-  *)
-    case ";${PROMPT_COMMAND:-};" in
-      *";sbrun_prompt_prefix;"*) ;;
-      *) PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND; }sbrun_prompt_prefix" ;;
-    esac
-    ;;
-esac
+```sh
+eval "$(sbrun --prompt-init)"
 ```
 
-If your login shell does not source `~/.bashrc`, put the same snippet in
-`~/.bash_profile`.
+If shell autodetection gets the wrong shell, use one of:
+
+```sh
+eval "$(sbrun --prompt-init=bash)"
+eval "$(sbrun --prompt-init=zsh)"
+```
+
+The generated hook uses `SBRUN_ACTIVE` and preserves existing bash
+`PROMPT_COMMAND` and zsh `precmd_functions` hooks.
 
 ## Config
 
