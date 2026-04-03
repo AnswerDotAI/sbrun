@@ -15,8 +15,10 @@ jobs:
         include:
           - os: macos-latest
             platform: macos
+            run_integration: true
           - os: ubuntu-latest
             platform: linux
+            run_integration: false
 
     runs-on: ${{ matrix.os }}
 
@@ -33,9 +35,17 @@ jobs:
           python-version: "3.12"
 
       - name: Install Dev Dependencies
+        if: ${{ matrix.run_integration }}
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e '.[dev]'
 
-      - name: Test
+      - name: Rust Tests
+        if: ${{ !matrix.run_integration }}
+        run: |
+          cargo test
+          cargo build
+
+      - name: Full Test Suite
+        if: ${{ matrix.run_integration }}
         run: tools/test.sh

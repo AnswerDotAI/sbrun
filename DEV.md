@@ -48,7 +48,10 @@ That runs:
 - `pytest -q tests/test_sbrun.py` — integration tests (sandbox enforcement, config, environment)
 
 Tests run on both macOS and Linux.
-GitHub Actions runs the same suite from `.github/workflows/test.yml` on pushes to `main`.
+GitHub Actions runs the full suite on macOS from `.github/workflows/test.yml` on pushes to `main`.
+On GitHub-hosted Linux it only runs `cargo test` and `cargo build`, because the hosted environment blocks the
+user-namespace setup needed for the Linux sandbox integration tests. Use a self-hosted Linux runner, or any Linux
+environment whose policy allows unprivileged user and mount namespaces, for full Linux integration coverage.
 
 ## Versioning
 
