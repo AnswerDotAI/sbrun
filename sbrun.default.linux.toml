@@ -1,0 +1,21 @@
+version = 1
+
+optional_write = [
+  "/tmp",
+  "/dev/null",
+  "/dev/tty",
+  "/dev/ptmx",
+  "/dev/pts",
+  "~/.cache",
+  "~/.config",
+  "~/.local/share",
+  "~/.local/state",
+  "~/.ipython",
+  "~/.jupyter",
+  "~/.matplotlib",
+  "~/.npm",
+  "~/.pnpm-store",
+  "~/.cargo",
+  "~/.rustup",
+  "~/.conda",
+]

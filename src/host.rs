@@ -80,6 +80,7 @@ pub fn login_arg0(shell: &Path) -> OsString {
     OsString::from_vec(bytes)
 }
 
+#[cfg(target_os = "macos")]
 pub fn tty_path() -> PathBuf {
     for fd in [libc::STDIN_FILENO, libc::STDOUT_FILENO, libc::STDERR_FILENO] {
         if let Some(path) = tty_path_for_fd(fd) {
@@ -124,8 +125,9 @@ fn is_executable(path: &Path) -> Result<bool> {
     Ok(unsafe { libc::access(c_path.as_ptr(), libc::X_OK) } == 0)
 }
 
+#[cfg(target_os = "macos")]
 fn tty_path_for_fd(fd: i32) -> Option<PathBuf> {
-    let mut buf = vec![0_i8; 1024];
+    let mut buf = vec![0 as libc::c_char; 1024];
     if unsafe { libc::ttyname_r(fd, buf.as_mut_ptr(), buf.len()) } != 0 || buf[0] == 0 {
         return None;
     }

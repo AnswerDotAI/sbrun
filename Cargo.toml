@@ -3,7 +3,7 @@ name = "sbrun"
 version = "0.0.6"
 edition = "2024"
 rust-version = "1.85"
-description = "Run commands under the macOS sandbox with writes confined to selected paths"
+description = "Run commands in a sandbox with writes confined to selected paths"
 license = "MIT"
 
 [lib]

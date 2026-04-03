@@ -5,12 +5,13 @@ build-backend = "maturin"
 [project]
 name = "sbrun"
 dynamic = ["version"]
-description = "Run commands under the macOS sandbox with writes confined to selected paths"
+description = "Run commands in a sandbox with writes confined to selected paths"
 readme = "README.md"
 requires-python = ">=3.9"
 classifiers = [
   "Environment :: Console",
   "Operating System :: MacOS :: MacOS X",
+  "Operating System :: POSIX :: Linux",
   "Programming Language :: Python :: 3",
   "Programming Language :: Rust",
   "Topic :: Security",

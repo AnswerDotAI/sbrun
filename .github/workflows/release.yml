@@ -10,8 +10,16 @@ permissions:
   id-token: write
 
 jobs:
-  release:
-    runs-on: macos-latest
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            platform: macos
+          - os: ubuntu-latest
+            platform: linux
+
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout
@@ -42,12 +50,35 @@ jobs:
           set -euo pipefail
           tag="${GITHUB_REF_NAME}"
           arch="$(uname -m)"
-          asset="sbrun-${tag}-macos-${arch}.tar.gz"
+          asset="sbrun-${tag}-${{ matrix.platform }}-${arch}.tar.gz"
+          default_conf="sbrun.default.${{ matrix.platform }}.toml"
           mkdir -p dist/pkg
-          cp target/release/sbrun README.md sbrun.default.toml dist/pkg/
+          cp target/release/sbrun README.md "$default_conf" dist/pkg/
           tar -C dist/pkg -czf "dist/${asset}" .
-          shasum -a 256 "dist/${asset}" > dist/SHA256SUMS
+          sha256sum "dist/${asset}" > "dist/SHA256SUMS-${{ matrix.platform }}"
           printf 'RELEASE_ASSET=%s\n' "dist/${asset}" >> "$GITHUB_ENV"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.platform }}
+          path: |
+            dist/py-dist/*.whl
+            dist/sbrun-*.tar.gz
+            dist/SHA256SUMS-*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+          merge-multiple: true
+
+      - name: Combine checksums
+        run: cat artifacts/SHA256SUMS-* > artifacts/SHA256SUMS
 
       - name: Publish GitHub release
         env:
@@ -55,32 +86,26 @@ jobs:
         run: |
           set -euo pipefail
           tag="${GITHUB_REF_NAME}"
-          assets=("${RELEASE_ASSET}" dist/SHA256SUMS dist/py-dist/*.whl)
+          assets=(artifacts/sbrun-*.tar.gz artifacts/SHA256SUMS artifacts/*.whl)
           if gh release view "${tag}" >/dev/null 2>&1; then
             gh release upload "${tag}" "${assets[@]}" --clobber
           else
             gh release create "${tag}" "${assets[@]}" --verify-tag --generate-notes
           fi
 
-      - name: Upload wheel artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: wheels
-          path: dist/py-dist/*.whl
-
   pypi:
-    needs: release
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       id-token: write
     steps:
-      - name: Download wheel artifact
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          name: wheels
-          path: dist/
+          path: artifacts/
+          merge-multiple: true
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          packages-dir: dist/
+          packages-dir: artifacts/

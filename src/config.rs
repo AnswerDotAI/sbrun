@@ -7,7 +7,10 @@ use serde::Deserialize;
 
 use crate::error::{Error, Result};
 
+#[cfg(target_os = "macos")]
 const DEFAULT_XDG_CONFIG_DIRS: &str = "/opt/homebrew/etc/xdg:/usr/local/etc/xdg:/etc/xdg";
+#[cfg(target_os = "linux")]
+const DEFAULT_XDG_CONFIG_DIRS: &str = "/etc/xdg";
 
 #[derive(Debug, Clone, Default)]
 pub enum ConfigMode {

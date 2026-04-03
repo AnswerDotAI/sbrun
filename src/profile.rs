@@ -26,6 +26,8 @@ pub fn build(
         "(allow file-read-data file-write-data file-ioctl\n",
         "    (literal \"/dev/null\")\n",
         "    (literal \"/dev/tty\")\n",
+        "    (literal \"/dev/ptmx\")\n",
+        "    (regex #\"^/dev/ttys[0-9]+$\")\n",
         "    (literal (param \"TTY\")))\n",
         "\n",
         "; the writable places are rooted under the launch directory and any configured extras\n",

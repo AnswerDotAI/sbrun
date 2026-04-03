@@ -96,18 +96,12 @@ pub fn refuse_redirected_regular_stdio(workdir: &Path, allowed: &AllowedWrites) 
             continue;
         }
 
-        let mut raw = vec![0_i8; libc::PATH_MAX as usize];
-        if unsafe { libc::fcntl(fd, libc::F_GETPATH, raw.as_mut_ptr()) } == -1 || raw[0] == 0 {
-            return Err(Error::Usage(format!(
+        let final_path = match fd_path(fd) {
+            Some(path) => path,
+            None => return Err(Error::Usage(format!(
                 "fd {fd} is redirected to a regular file outside the sandbox check path; refusing to start"
-            )));
-        }
-
-        let raw_path = unsafe { std::ffi::CStr::from_ptr(raw.as_ptr()) }
-            .to_bytes()
-            .to_vec();
-        let final_path = fs::canonicalize(PathBuf::from(OsString::from_vec(raw_path.clone())))
-            .unwrap_or_else(|_| PathBuf::from(OsString::from_vec(raw_path)));
+            ))),
+        };
         if !path_is_allowed(&final_path, workdir, allowed) {
             return Err(Error::Usage(format!(
                 "fd {fd} is redirected to {} outside allowed writable paths; refusing to start (set SBRUN_ALLOW_STDIO_REDIRECTS=1 to override)",
@@ -188,4 +182,21 @@ fn path_is_allowed(target: &Path, workdir: &Path, allowed: &AllowedWrites) -> bo
 enum ResolvedTarget {
     Dir(PathBuf),
     File(PathBuf),
+}
+
+#[cfg(target_os = "macos")]
+fn fd_path(fd: i32) -> Option<PathBuf> {
+    let mut raw = vec![0_i8; libc::PATH_MAX as usize];
+    if unsafe { libc::fcntl(fd, libc::F_GETPATH, raw.as_mut_ptr()) } == -1 || raw[0] == 0 {
+        return None;
+    }
+    let raw_path = unsafe { std::ffi::CStr::from_ptr(raw.as_ptr()) }.to_bytes().to_vec();
+    Some(fs::canonicalize(PathBuf::from(OsString::from_vec(raw_path.clone())))
+        .unwrap_or_else(|_| PathBuf::from(OsString::from_vec(raw_path))))
+}
+
+#[cfg(target_os = "linux")]
+fn fd_path(fd: i32) -> Option<PathBuf> {
+    let link = format!("/proc/self/fd/{fd}");
+    fs::read_link(&link).ok().and_then(|p| fs::canonicalize(&p).ok().or(Some(p)))
 }

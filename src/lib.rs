@@ -3,6 +3,7 @@ mod config;
 mod error;
 mod host;
 mod pathutil;
+#[cfg(target_os = "macos")]
 mod profile;
 mod sandbox;
 
@@ -103,12 +104,17 @@ pub fn run(target: RunTarget, mut options: Options) -> Result<Infallible> {
         &options.env_dir,
         &options.unset_env,
     );
-    let tty_path = host::tty_path();
-    let profile = profile::build(&workdir, &allowed.dirs, &allowed.files, histfile.as_deref())?;
-
     let mut command = build_command(target, &host.shell, &workdir, &env_map)?;
     host::close_extra_fds();
-    sandbox::apply(&profile, &workdir, &tty_path, histfile.as_deref())?;
+
+    #[cfg(target_os = "macos")]
+    {
+        let tty_path = host::tty_path();
+        let profile = profile::build(&workdir, &allowed.dirs, &allowed.files, histfile.as_deref())?;
+        sandbox::apply(&profile, &workdir, &tty_path, histfile.as_deref())?;
+    }
+    #[cfg(target_os = "linux")]
+    sandbox::apply(&workdir, &allowed.dirs, &allowed.files)?;
 
     Err(Error::io("exec", command.exec()))
 }
@@ -160,18 +166,27 @@ fn build_child_env(
     let mut env_map: Vec<(OsString, OsString)> = env::vars_os().collect();
     remove_env(&mut env_map, "BASH_ENV");
     remove_env(&mut env_map, "ENV");
-    remove_env(&mut env_map, "DYLD_INSERT_LIBRARIES");
-    remove_env(&mut env_map, "DYLD_LIBRARY_PATH");
-    remove_env(&mut env_map, "DYLD_FRAMEWORK_PATH");
-    remove_env(&mut env_map, "LD_LIBRARY_PATH");
     remove_env(&mut env_map, "SBRUN_ALLOW_STDIO_REDIRECTS");
+    #[cfg(target_os = "macos")]
+    {
+        remove_env(&mut env_map, "DYLD_INSERT_LIBRARIES");
+        remove_env(&mut env_map, "DYLD_LIBRARY_PATH");
+        remove_env(&mut env_map, "DYLD_FRAMEWORK_PATH");
+    }
+    remove_env(&mut env_map, "LD_LIBRARY_PATH");
+    #[cfg(target_os = "linux")]
+    remove_env(&mut env_map, "LD_PRELOAD");
 
     for name in unset_env {
         remove_env(&mut env_map, name);
     }
 
     let path = env::var_os("PATH").unwrap_or_else(|| {
-        OsString::from("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")
+        if cfg!(target_os = "macos") {
+            OsString::from("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")
+        } else {
+            OsString::from("/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")
+        }
     });
     set_env(&mut env_map, "PATH", &path);
     set_env(&mut env_map, "PWD", workdir.as_os_str());

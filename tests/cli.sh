@@ -72,7 +72,7 @@ if run_env -- python3 -c 'import sys; open(sys.argv[1], "w").write("nope")' "$de
     echo "expected home write to be denied" >&2
     exit 1
 fi
-grep -Eq 'Operation not permitted|PermissionError' "${deny_stderr}"
+grep -Eq 'Operation not permitted|PermissionError|Read-only file system' "${deny_stderr}"
 rm -f "$deny_file"
 
 env_name="SBRUN_TEST_ENVDIR_$$"
