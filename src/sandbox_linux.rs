@@ -182,6 +182,46 @@ fn needs_preflight_drop((uid, euid): (libc::uid_t, libc::uid_t)) -> bool {
     mode_from_ids((uid, euid)) == PrivilegeMode::Privileged && uid != 0
 }
 
+const AT_RECURSIVE: libc::c_int = 0x8000;
+const MOUNT_ATTR_RDONLY: u64 = 0x1;
+const MOUNT_ATTR_NOSUID: u64 = 0x2;
+
+#[repr(C)]
+struct MountAttr {
+    attr_set: u64,
+    attr_clr: u64,
+    propagation: u64,
+    userns_fd: u64,
+}
+
+fn mount_setattr_ro_rec(path: &Path) -> Result<()> {
+    let p = c_path(path)?;
+    let attr = MountAttr {
+        attr_set: MOUNT_ATTR_RDONLY | MOUNT_ATTR_NOSUID,
+        attr_clr: 0,
+        propagation: 0,
+        userns_fd: 0,
+    };
+    let rc = unsafe {
+        libc::syscall(
+            libc::SYS_mount_setattr,
+            libc::AT_FDCWD,
+            p.as_ptr(),
+            AT_RECURSIVE,
+            &attr as *const _,
+            std::mem::size_of::<MountAttr>(),
+        )
+    };
+    if rc != 0 {
+        return Err(Error::Sandbox(format!(
+            "mount_setattr {}: {}",
+            path.display(),
+            std::io::Error::last_os_error()
+        )));
+    }
+    Ok(())
+}
+
 fn bind(src: &Path, dest: &Path, readonly: bool) -> Result<()> {
     let s = c_path(src)?;
     let d = c_path(dest)?;
@@ -201,11 +241,10 @@ fn bind(src: &Path, dest: &Path, readonly: bool) -> Result<()> {
             std::io::Error::last_os_error()
         )));
     }
-    let mut flags =
-        libc::MS_BIND | libc::MS_REMOUNT | libc::MS_REC | libc::MS_NOSUID | libc::MS_NODEV;
     if readonly {
-        flags |= libc::MS_RDONLY;
+        return mount_setattr_ro_rec(dest);
     }
+    let flags = libc::MS_BIND | libc::MS_REMOUNT | libc::MS_REC | libc::MS_NOSUID | libc::MS_NODEV;
     if unsafe { libc::mount(ptr::null(), d.as_ptr(), ptr::null(), flags, ptr::null()) } != 0 {
         return Err(Error::Sandbox(format!(
             "remount {}: {}",
