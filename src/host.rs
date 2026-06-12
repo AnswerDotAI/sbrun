@@ -91,6 +91,10 @@ pub fn tty_path() -> PathBuf {
 }
 
 pub fn close_extra_fds() {
+    #[cfg(target_os = "linux")]
+    if unsafe { libc::syscall(libc::SYS_close_range, 3, libc::c_uint::MAX, 0) } == 0 {
+        return;
+    }
     let mut limit = libc::rlimit {
         rlim_cur: 0,
         rlim_max: 0,
@@ -107,16 +111,22 @@ pub fn close_extra_fds() {
 }
 
 fn pick_shell(env_shell: Option<PathBuf>, passwd_shell: Option<PathBuf>) -> Result<PathBuf> {
-    for candidate in [env_shell, passwd_shell, Some(PathBuf::from("/bin/bash"))]
-        .into_iter()
-        .flatten()
+    for candidate in [
+        env_shell,
+        passwd_shell,
+        Some(PathBuf::from("/bin/bash")),
+        Some(PathBuf::from("/bin/sh")),
+    ]
+    .into_iter()
+    .flatten()
     {
         if candidate.is_absolute() && is_executable(&candidate)? {
             return Ok(candidate);
         }
     }
     Err(Error::Usage(
-        "could not find an executable shell from $SHELL, passwd entry, or /bin/bash".into(),
+        "could not find an executable shell from $SHELL, passwd entry, /bin/bash, or /bin/sh"
+            .into(),
     ))
 }
 

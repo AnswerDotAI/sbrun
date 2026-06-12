@@ -12,9 +12,6 @@ def sbrun(*args, env_override=None, cwd=None, stdin=None, allow_fail=False):
     if not allow_fail: assert r.returncode == 0, f"sbrun failed:\nstdout: {r.stdout}\nstderr: {r.stderr}"
     return r
 
-@pytest.fixture
-def tmp(tmp_path): return tmp_path
-
 # -- CLI basics --
 
 def test_help():
@@ -30,6 +27,17 @@ def test_version():
 def test_unknown_option():
     r = sbrun("--bogus", allow_fail=True)
     assert r.returncode != 0
+    assert "unknown option --bogus" in r.stderr
+
+def test_command_not_found_exit_127():
+    r = sbrun("--no-config", "--", "sbrun-no-such-cmd", allow_fail=True)
+    assert r.returncode == 127
+
+def test_command_not_executable_exit_126(tmp_path):
+    script = tmp_path / "noexec.sh"
+    script.write_text("#!/bin/sh\necho hi\n")
+    r = sbrun("--no-config", "--", str(script), cwd=tmp_path, allow_fail=True)
+    assert r.returncode == 126
 
 def test_kernel_install_requires_linux_root_or_sudo():
     if IS_LINUX and os.getuid() == 0 and os.geteuid() == 0: pytest.skip("would modify host sysctl config")
@@ -54,14 +62,21 @@ def test_unset_env():
 
 def test_direct_command(): assert sbrun("--no-config", "--", "sh", "-c", "echo direct").stdout.strip() == "direct"
 
+def test_env_dir(tmp_path):
+    r = sbrun("--no-config", "-d", "MYDIR", "--", "sh", "-c", 'echo "$MYDIR" && touch "$MYDIR/ok" && echo ok', cwd=tmp_path)
+    lines = r.stdout.strip().splitlines()
+    assert lines[0] == str(tmp_path / ".sbrun" / "MYDIR")
+    assert lines[-1] == "ok"
+    assert (tmp_path / ".sbrun" / "MYDIR" / "ok").exists()
+
 def test_shell_command():
     r = sbrun("--no-config", "-c", "echo shell")
     assert r.stdout.strip() == "shell"
 
 # -- Sandbox enforcement --
 
-def test_cwd_writable(tmp):
-    r = sbrun("--no-config", "--", "sh", "-c", "touch testfile && echo ok", cwd=tmp)
+def test_cwd_writable(tmp_path):
+    r = sbrun("--no-config", "--", "sh", "-c", "touch testfile && echo ok", cwd=tmp_path)
     assert r.stdout.strip() == "ok"
 
 def test_root_readonly():
@@ -77,20 +92,21 @@ def test_tmp_writable():
     r = sbrun("--no-config", "-w", "/tmp", "--", "sh", "-c", "echo ok > /tmp/sbrun-pytest && cat /tmp/sbrun-pytest")
     assert r.stdout.strip() == "ok"
 
-def test_extra_dir_writable(tmp):
-    extra = tmp / "extra"
+def test_extra_dir_writable(tmp_path):
+    extra = tmp_path / "extra"
     extra.mkdir()
-    r = sbrun("--no-config", "-w", str(extra), "--", "sh", "-c", f"touch {extra}/ok && echo ok", cwd=tmp)
+    r = sbrun("--no-config", "-w", str(extra), "--", "sh", "-c", f"touch {extra}/ok && echo ok", cwd=tmp_path)
     assert r.stdout.strip() == "ok"
 
-def test_subdir_creation(tmp):
-    r = sbrun("--no-config", "--", "sh", "-c", "mkdir -p a/b/c && echo hello > a/b/c/f && cat a/b/c/f", cwd=tmp)
+def test_subdir_creation(tmp_path):
+    r = sbrun("--no-config", "--", "sh", "-c", "mkdir -p a/b/c && echo hello > a/b/c/f && cat a/b/c/f", cwd=tmp_path)
     assert r.stdout.strip() == "hello"
 
 def test_deny_write_shows_error():
     home = os.environ.get("HOME", "/tmp")
     r = sbrun("--no-config", "--", "sh", "-c", f"touch {home}/.sbrun-nope 2>&1", allow_fail=True)
-    assert "Read-only file system" in r.stdout or "Operation not permitted" in r.stdout or r.returncode != 0
+    assert r.returncode != 0
+    assert "Read-only file system" in r.stdout or "Operation not permitted" in r.stdout
 
 # -- Reads --
 
@@ -104,18 +120,18 @@ def test_binaries_on_path():
 
 # -- Config --
 
-def test_explicit_config(tmp):
-    cfg = tmp / "config.toml"
+def test_explicit_config(tmp_path):
+    cfg = tmp_path / "config.toml"
     cfg.write_text('version = 1\nwrite = ["/tmp"]\n')
-    r = sbrun("--config", str(cfg), "--", "sh", "-c", "echo ok > /tmp/sbrun-cfg && cat /tmp/sbrun-cfg", cwd=tmp)
+    r = sbrun("--config", str(cfg), "--", "sh", "-c", "echo ok > /tmp/sbrun-cfg && cat /tmp/sbrun-cfg", cwd=tmp_path)
     assert r.stdout.strip() == "ok"
 
-def test_xdg_config(tmp):
-    xdg = tmp / "xdg" / "sbrun"
+def test_xdg_config(tmp_path):
+    xdg = tmp_path / "xdg" / "sbrun"
     xdg.mkdir(parents=True)
     (xdg / "config.toml").write_text('version = 1\nwrite = ["/tmp"]\n')
-    xdg_env = {"XDG_CONFIG_HOME": str(tmp / "xdg"), "XDG_CONFIG_DIRS": "/nonexistent"}
-    r = sbrun("--", "sh", "-c", "echo ok > /tmp/sbrun-xdg && cat /tmp/sbrun-xdg", cwd=tmp, env_override=xdg_env)
+    xdg_env = {"XDG_CONFIG_HOME": str(tmp_path / "xdg"), "XDG_CONFIG_DIRS": "/nonexistent"}
+    r = sbrun("--", "sh", "-c", "echo ok > /tmp/sbrun-xdg && cat /tmp/sbrun-xdg", cwd=tmp_path, env_override=xdg_env)
     assert r.stdout.strip() == "ok"
 
 def test_missing_config_fails():
@@ -123,23 +139,23 @@ def test_missing_config_fails():
     assert r.returncode != 0
     assert "config" in r.stderr.lower()
 
-def test_auto_creates_default_config(tmp):
-    xdg = tmp / "xdg"
+def test_auto_creates_default_config(tmp_path):
+    xdg = tmp_path / "xdg"
     cfg_path = xdg / "sbrun" / "config.toml"
     assert not cfg_path.exists()
     # First run creates the config
-    sbrun("--", "sh", "-c", "echo ok", cwd=tmp, env_override={"XDG_CONFIG_HOME": str(xdg), "XDG_CONFIG_DIRS": "/nonexistent"})
+    sbrun("--", "sh", "-c", "echo ok", cwd=tmp_path, env_override={"XDG_CONFIG_HOME": str(xdg), "XDG_CONFIG_DIRS": "/nonexistent"})
     assert cfg_path.exists()
     content = cfg_path.read_text()
     assert "version = 1" in content
     assert "optional_write" in content
     # Second run should not print creation message
-    r = sbrun("--", "sh", "-c", "echo ok", cwd=tmp, env_override={"XDG_CONFIG_HOME": str(xdg), "XDG_CONFIG_DIRS": "/nonexistent"})
+    r = sbrun("--", "sh", "-c", "echo ok", cwd=tmp_path, env_override={"XDG_CONFIG_HOME": str(xdg), "XDG_CONFIG_DIRS": "/nonexistent"})
     assert "created default config" not in r.stderr
 
 # -- Redirect blocking --
 
-def test_redirect_to_home_blocked(tmp):
+def test_redirect_to_home_blocked(tmp_path):
     home = os.environ.get("HOME", "/tmp")
     target = Path(f"{home}/.sbrun-redirect-test")
     env = {**os.environ, "XDG_CONFIG_DIRS": "/nonexistent", "XDG_CONFIG_HOME": "/nonexistent"}

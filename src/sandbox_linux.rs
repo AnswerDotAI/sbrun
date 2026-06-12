@@ -31,10 +31,17 @@ impl PreflightPrivilegeGuard {
     }
 }
 
-pub fn apply(workdir: &Path, write_dirs: &[PathBuf], write_files: &[PathBuf]) -> Result<()> {
+pub fn apply(
+    workdir: &Path,
+    write_dirs: &[PathBuf],
+    write_files: &[PathBuf],
+    histfile: Option<&Path>,
+) -> Result<()> {
     match mode_from_ids(current_ids()) {
-        PrivilegeMode::Unprivileged => apply_unprivileged(workdir, write_dirs, write_files),
-        PrivilegeMode::Privileged => apply_privileged(workdir, write_dirs, write_files),
+        PrivilegeMode::Unprivileged => {
+            apply_unprivileged(workdir, write_dirs, write_files, histfile)
+        }
+        PrivilegeMode::Privileged => apply_privileged(workdir, write_dirs, write_files, histfile),
     }
 }
 
@@ -42,6 +49,7 @@ fn apply_unprivileged(
     workdir: &Path,
     write_dirs: &[PathBuf],
     write_files: &[PathBuf],
+    histfile: Option<&Path>,
 ) -> Result<()> {
     let uid = unsafe { libc::getuid() };
     let gid = unsafe { libc::getgid() };
@@ -62,6 +70,41 @@ fn apply_unprivileged(
     fs::write("/proc/self/gid_map", format!("{gid} {gid} 1"))
         .map_err(|e| Error::io_path("write", Path::new("/proc/self/gid_map"), e))?;
 
+    setup_mounts(workdir, write_dirs, write_files, histfile)?;
+
+    let cwd = c_path(workdir)?;
+    check(unsafe { libc::chdir(cwd.as_ptr()) }, "chdir")?;
+
+    Ok(())
+}
+
+fn apply_privileged(
+    workdir: &Path,
+    write_dirs: &[PathBuf],
+    write_files: &[PathBuf],
+    histfile: Option<&Path>,
+) -> Result<()> {
+    check(unsafe { libc::unshare(libc::CLONE_NEWNS) }, "unshare")?;
+    setup_mounts(workdir, write_dirs, write_files, histfile)?;
+
+    permanently_drop_privileges()?;
+    check(
+        unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) },
+        "prctl(NO_NEW_PRIVS)",
+    )?;
+
+    let cwd = c_path(workdir)?;
+    check(unsafe { libc::chdir(cwd.as_ptr()) }, "chdir")?;
+
+    Ok(())
+}
+
+fn setup_mounts(
+    workdir: &Path,
+    write_dirs: &[PathBuf],
+    write_files: &[PathBuf],
+    histfile: Option<&Path>,
+) -> Result<()> {
     check(
         unsafe {
             libc::mount(
@@ -76,14 +119,23 @@ fn apply_unprivileged(
     )?;
 
     bind(Path::new("/"), Path::new("/"), true)?;
-    tmpfs(Path::new("/tmp"))?;
+    // A private tmpfs keeps TMPDIR=/tmp usable when /tmp is otherwise
+    // read-only, but would shadow any writable path under /tmp (including the
+    // real /tmp when explicitly allowed), so skip it in that case.
+    if !tmp_overlaps_writes(workdir, write_dirs, write_files) {
+        tmpfs(Path::new("/tmp"))?;
+    }
 
     for d in std::iter::once(workdir).chain(write_dirs.iter().map(|p| p.as_path())) {
-        let _ = fs::create_dir_all(d);
         bind(d, d, false)?;
     }
     for f in write_files {
         bind(f, f, false)?;
+    }
+    if let Some(histfile) = histfile
+        && fs::symlink_metadata(histfile).is_ok()
+    {
+        bind(histfile, histfile, false)?;
     }
 
     // Try to remount /proc for the new namespace (non-fatal)
@@ -97,58 +149,15 @@ fn apply_unprivileged(
         )
     };
 
-    let cwd = c_path(workdir)?;
-    check(unsafe { libc::chdir(cwd.as_ptr()) }, "chdir")?;
-
     Ok(())
 }
 
-fn apply_privileged(workdir: &Path, write_dirs: &[PathBuf], write_files: &[PathBuf]) -> Result<()> {
-    check(unsafe { libc::unshare(libc::CLONE_NEWNS) }, "unshare")?;
-    check(
-        unsafe {
-            libc::mount(
-                ptr::null(),
-                c("/")?.as_ptr(),
-                ptr::null(),
-                libc::MS_PRIVATE | libc::MS_REC,
-                ptr::null(),
-            )
-        },
-        "make-private",
-    )?;
-
-    bind(Path::new("/"), Path::new("/"), true)?;
-    tmpfs(Path::new("/tmp"))?;
-
-    for d in std::iter::once(workdir).chain(write_dirs.iter().map(|p| p.as_path())) {
-        let _ = fs::create_dir_all(d);
-        bind(d, d, false)?;
-    }
-    for f in write_files {
-        bind(f, f, false)?;
-    }
-
-    let _ = unsafe {
-        libc::mount(
-            c("proc")?.as_ptr(),
-            c("/proc")?.as_ptr(),
-            c("proc")?.as_ptr(),
-            libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC,
-            ptr::null(),
-        )
-    };
-
-    permanently_drop_privileges()?;
-    check(
-        unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) },
-        "prctl(NO_NEW_PRIVS)",
-    )?;
-
-    let cwd = c_path(workdir)?;
-    check(unsafe { libc::chdir(cwd.as_ptr()) }, "chdir")?;
-
-    Ok(())
+fn tmp_overlaps_writes(workdir: &Path, write_dirs: &[PathBuf], write_files: &[PathBuf]) -> bool {
+    let tmp = Path::new("/tmp");
+    std::iter::once(workdir)
+        .chain(write_dirs.iter().map(|p| p.as_path()))
+        .chain(write_files.iter().map(|p| p.as_path()))
+        .any(|p| p.starts_with(tmp) || tmp.starts_with(p))
 }
 
 fn permanently_drop_privileges() -> Result<()> {
@@ -290,6 +299,16 @@ fn c_path(p: &Path) -> Result<CString> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tmpfs_skipped_when_tmp_writable() {
+        let no = Vec::new();
+        assert!(tmp_overlaps_writes(Path::new("/work"), &[PathBuf::from("/tmp")], &no));
+        assert!(tmp_overlaps_writes(Path::new("/work"), &[PathBuf::from("/tmp/foo")], &no));
+        assert!(tmp_overlaps_writes(Path::new("/tmp/proj"), &no, &no));
+        assert!(tmp_overlaps_writes(Path::new("/work"), &no, &[PathBuf::from("/tmp/f")]));
+        assert!(!tmp_overlaps_writes(Path::new("/work"), &[PathBuf::from("/data")], &no));
+    }
 
     #[test]
     fn non_root_uses_unprivileged_backend() {

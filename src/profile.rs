@@ -54,9 +54,32 @@ pub fn build(
 }
 
 fn escape(path: &Path) -> Result<String> {
-    let text = path.to_string_lossy();
+    let Some(text) = path.to_str() else {
+        return Err(Error::Usage(format!(
+            "sandbox path is not valid UTF-8: {}",
+            path.display()
+        )));
+    };
     if text.contains('\n') || text.contains('\r') {
-        return Err(Error::PathContainsNewline(text.into_owned()));
+        return Err(Error::PathContainsNewline(text.to_owned()));
     }
     Ok(text.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    #[test]
+    fn escape_rejects_non_utf8() {
+        let path = Path::new(OsStr::from_bytes(b"/tmp/\xff"));
+        assert!(escape(path).is_err());
+    }
+
+    #[test]
+    fn escape_quotes_and_backslashes() {
+        assert_eq!(escape(Path::new(r#"/a"b\c"#)).unwrap(), r#"/a\"b\\c"#);
+    }
 }

@@ -6,6 +6,9 @@ Developer workflow and release notes for `sbrun`.
 
 - `src/main.rs`: CLI entrypoint
 - `src/lib.rs`: shared runtime plus PyO3 module
+- `src/cli.rs`: argument parsing and help text
+- `src/admin.rs`: `--kernel-install` implementation
+- `src/prompt.rs`: `--prompt-init` shell hook generation
 - `src/sandbox.rs`: platform dispatcher (`#[cfg]` selects backend)
 - `src/sandbox_macos.rs`: macOS Seatbelt FFI bridge
 - `src/sandbox_linux.rs`: Linux user/mount namespace sandbox

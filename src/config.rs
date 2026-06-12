@@ -51,18 +51,16 @@ pub fn load(mode: &ConfigMode, home: Option<&Path>) -> Result<WriteConfig> {
         }
     }
     for path in &paths {
-        if !path.exists() {
-            if matches!(mode, ConfigMode::Explicit(_)) {
-                return Err(Error::io_path(
-                    "read config file",
-                    path,
-                    std::io::Error::from(std::io::ErrorKind::NotFound),
-                ));
+        let raw = match fs::read_to_string(path) {
+            Ok(raw) => raw,
+            Err(err)
+                if err.kind() == std::io::ErrorKind::NotFound
+                    && !matches!(mode, ConfigMode::Explicit(_)) =>
+            {
+                continue;
             }
-            continue;
-        }
-        let raw = fs::read_to_string(&path)
-            .map_err(|err| Error::io_path("read config file", &path, err))?;
+            Err(err) => return Err(Error::io_path("read config file", path, err)),
+        };
         let parsed: RawConfig = toml::from_str(&raw).map_err(|err| Error::ConfigParse {
             path: path.display().to_string(),
             source: err,

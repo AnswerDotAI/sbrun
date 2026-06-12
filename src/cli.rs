@@ -9,6 +9,8 @@ use crate::{
     error::{Error, Result},
 };
 
+pub(crate) const CONFIG_CONFLICT: &str = "--config and --no-config cannot be used together";
+
 pub enum Command {
     Help,
     Version,
@@ -29,132 +31,74 @@ where
     let mut unset_env = Vec::new();
     let mut config = ConfigMode::Default;
     let mut shell_command = None;
-    let mut command = Vec::new();
+    let mut command: Vec<OsString> = Vec::new();
     let mut kernel_install = false;
     let mut prompt_init = None;
-    let mut stop_parsing = false;
 
     while let Some(arg) = args.next() {
-        if stop_parsing {
-            command.push(arg);
+        if arg == OsStr::new("--") {
             command.extend(args);
             break;
         }
-
-        if arg == OsStr::new("--") {
-            stop_parsing = true;
-            continue;
-        }
-        if arg == OsStr::new("--help") || arg == OsStr::new("-h") {
-            return Ok(Command::Help);
-        }
-        if arg == OsStr::new("--version") {
-            return Ok(Command::Version);
-        }
-        if arg == OsStr::new("--kernel-install") {
-            kernel_install = true;
-            continue;
-        }
-        if arg == OsStr::new("--prompt-init") {
-            if prompt_init.is_some() {
-                return Err(Error::Usage("--prompt-init may only be used once".into()));
+        let Some((flag, inline)) = parse_option(&arg)? else {
+            command.push(arg);
+            command.extend(args);
+            break;
+        };
+        match flag.as_str() {
+            "help" => {
+                no_value(&flag, &inline)?;
+                return Ok(Command::Help);
             }
-            prompt_init = Some(None);
-            continue;
-        }
-        if arg == OsStr::new("--no-config") {
-            if matches!(config, ConfigMode::Explicit(_)) {
-                return Err(Error::Usage(
-                    "--config and --no-config cannot be used together".into(),
-                ));
+            "version" => {
+                no_value(&flag, &inline)?;
+                return Ok(Command::Version);
             }
-            config = ConfigMode::None;
-            continue;
-        }
-        if arg == OsStr::new("--write") {
-            write.push(PathBuf::from(next_value("--write", &mut args)?));
-            continue;
-        }
-        if arg == OsStr::new("--env-dir") {
-            env_dir.push(parse_env_name(next_value("--env-dir", &mut args)?)?);
-            continue;
-        }
-        if arg == OsStr::new("--unset-env") {
-            unset_env.push(parse_env_name(next_value("--unset-env", &mut args)?)?);
-            continue;
-        }
-        if arg == OsStr::new("--command") {
-            set_shell_command(&mut shell_command, next_value("--command", &mut args)?)?;
-            continue;
-        }
-        if arg == OsStr::new("--config") {
-            if matches!(config, ConfigMode::None) {
-                return Err(Error::Usage(
-                    "--config and --no-config cannot be used together".into(),
-                ));
+            "kernel-install" => {
+                no_value(&flag, &inline)?;
+                kernel_install = true;
             }
-            config = ConfigMode::Explicit(PathBuf::from(next_value("--config", &mut args)?));
-            continue;
-        }
-
-        if let Some((flag, value)) = split_long_option(&arg)? {
-            match flag.as_str() {
-                "write" => write.push(PathBuf::from(value)),
-                "env-dir" => env_dir.push(parse_env_name(value)?),
-                "unset-env" => unset_env.push(parse_env_name(value)?),
-                "command" => set_shell_command(&mut shell_command, value)?,
-                "config" => {
-                    if matches!(config, ConfigMode::None) {
-                        return Err(Error::Usage(
-                            "--config and --no-config cannot be used together".into(),
-                        ));
-                    }
-                    config = ConfigMode::Explicit(PathBuf::from(value));
+            "no-config" => {
+                no_value(&flag, &inline)?;
+                set_config(&mut config, ConfigMode::None)?;
+            }
+            "prompt-init" => {
+                if prompt_init.is_some() {
+                    return Err(Error::Usage("--prompt-init may only be used once".into()));
                 }
-                "prompt-init" => {
-                    if prompt_init.is_some() {
-                        return Err(Error::Usage("--prompt-init may only be used once".into()));
-                    }
-                    let shell = value
-                        .into_string()
-                        .map_err(|_| Error::Usage("prompt-init shell must be utf-8".into()))?;
-                    prompt_init = Some(Some(shell));
+                prompt_init = Some(match inline {
+                    Some(value) => Some(into_utf8(&flag, value)?),
+                    None => None,
+                });
+            }
+            "write" => write.push(PathBuf::from(take_value(&flag, inline, &mut args)?)),
+            "env-dir" => env_dir.push(into_utf8(&flag, take_value(&flag, inline, &mut args)?)?),
+            "unset-env" => {
+                unset_env.push(into_utf8(&flag, take_value(&flag, inline, &mut args)?)?)
+            }
+            "command" => {
+                if shell_command.is_some() {
+                    return Err(Error::Usage("--command/-c may only be used once".into()));
                 }
-                _ => return Err(Error::Usage(format!("unknown option --{flag}"))),
+                shell_command = Some(into_utf8(&flag, take_value(&flag, inline, &mut args)?)?);
             }
-            continue;
-        }
-
-        if let Some(flag) = short_flag(&arg) {
-            match flag {
-                'w' => write.push(PathBuf::from(next_value("--write", &mut args)?)),
-                'd' => env_dir.push(parse_env_name(next_value("--env-dir", &mut args)?)?),
-                'u' => unset_env.push(parse_env_name(next_value("--unset-env", &mut args)?)?),
-                'c' => set_shell_command(&mut shell_command, next_value("--command", &mut args)?)?,
-                _ => return Err(Error::Usage(format!("unknown option -{flag}"))),
+            "config" => {
+                let path = PathBuf::from(take_value(&flag, inline, &mut args)?);
+                set_config(&mut config, ConfigMode::Explicit(path))?;
             }
-            continue;
+            _ => return Err(Error::Usage(format!("unknown option --{flag}"))),
         }
-
-        command.push(arg);
-        command.extend(args);
-        break;
     }
 
-    if shell_command.is_some() && !command.is_empty() {
-        return Err(Error::Usage(
-            "use either --command/-c or a direct command, not both".into(),
-        ));
-    }
+    let has_run_args = !write.is_empty()
+        || !env_dir.is_empty()
+        || !unset_env.is_empty()
+        || shell_command.is_some()
+        || !command.is_empty()
+        || !matches!(config, ConfigMode::Default);
+
     if kernel_install {
-        if prompt_init.is_some()
-            || shell_command.is_some()
-            || !command.is_empty()
-            || !write.is_empty()
-            || !env_dir.is_empty()
-            || !unset_env.is_empty()
-            || !matches!(config, ConfigMode::Default)
-        {
+        if has_run_args || prompt_init.is_some() {
             return Err(Error::Usage(
                 "--kernel-install cannot be combined with other options or commands".into(),
             ));
@@ -162,18 +106,17 @@ where
         return Ok(Command::KernelInstall);
     }
     if let Some(shell) = prompt_init {
-        if shell_command.is_some()
-            || !command.is_empty()
-            || !write.is_empty()
-            || !env_dir.is_empty()
-            || !unset_env.is_empty()
-            || !matches!(config, ConfigMode::Default)
-        {
+        if has_run_args {
             return Err(Error::Usage(
                 "--prompt-init cannot be combined with other options or commands".into(),
             ));
         }
         return Ok(Command::PromptInit(shell));
+    }
+    if shell_command.is_some() && !command.is_empty() {
+        return Err(Error::Usage(
+            "use either --command/-c or a direct command, not both".into(),
+        ));
     }
 
     let target = if let Some(command) = shell_command {
@@ -229,57 +172,70 @@ Config:\n\
     )
 }
 
-fn split_long_option(arg: &OsStr) -> Result<Option<(String, OsString)>> {
+/// Normalize one argument into a canonical long flag name plus optional
+/// inline (`--flag=value`) value. `Ok(None)` means the argument is not an
+/// option and starts the command. Unknown options are errors here (short
+/// form) or in the caller's match (long form).
+fn parse_option(arg: &OsStr) -> Result<Option<(String, Option<OsString>)>> {
     let bytes = arg.as_encoded_bytes();
-    if !bytes.starts_with(b"--") || bytes == b"--" {
+    if !bytes.starts_with(b"-") || bytes == b"-" {
         return Ok(None);
     }
-
-    let body = &bytes[2..];
-    let Some(eq) = body.iter().position(|b| *b == b'=') else {
-        return Ok(None);
+    if let Some(body) = bytes.strip_prefix(b"--") {
+        let (name, value) = match body.iter().position(|&b| b == b'=') {
+            Some(eq) => (&body[..eq], Some(OsString::from_vec(body[eq + 1..].to_vec()))),
+            None => (body, None),
+        };
+        let name = std::str::from_utf8(name)
+            .map_err(|_| Error::Usage("option names must be utf-8".into()))?;
+        return Ok(Some((name.to_string(), value)));
+    }
+    let text = arg.to_string_lossy();
+    let mut chars = text[1..].chars();
+    let (Some(short), None) = (chars.next(), chars.next()) else {
+        return Err(Error::Usage(format!("unknown option {text}")));
     };
-    let flag = String::from_utf8(body[..eq].to_vec())
-        .map_err(|_| Error::Usage("option names must be utf-8".into()))?;
-    let value = OsString::from_vec(body[eq + 1..].to_vec());
-    if value.is_empty() {
-        return Err(Error::Usage(format!("--{flag} requires a value")));
-    }
-    Ok(Some((flag, value)))
+    let long = match short {
+        'h' => "help",
+        'w' => "write",
+        'd' => "env-dir",
+        'u' => "unset-env",
+        'c' => "command",
+        _ => return Err(Error::Usage(format!("unknown option -{short}"))),
+    };
+    Ok(Some((long.to_string(), None)))
 }
 
-fn short_flag(arg: &OsStr) -> Option<char> {
-    let text = arg.to_str()?;
-    if text.len() == 2 && text.starts_with('-') && text != "--" {
-        text.chars().nth(1)
-    } else {
-        None
-    }
-}
-
-fn next_value<I>(flag: &str, args: &mut I) -> Result<OsString>
+fn take_value<I>(flag: &str, inline: Option<OsString>, args: &mut I) -> Result<OsString>
 where
     I: Iterator<Item = OsString>,
 {
-    args.next()
+    inline
+        .or_else(|| args.next())
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| Error::Usage(format!("{flag} requires a value")))
+        .ok_or_else(|| Error::Usage(format!("--{flag} requires a value")))
 }
 
-fn parse_env_name(value: OsString) -> Result<String> {
-    let name = value
-        .into_string()
-        .map_err(|_| Error::Usage("environment variable names must be utf-8".into()))?;
-    Ok(name)
-}
-
-fn set_shell_command(slot: &mut Option<String>, value: OsString) -> Result<()> {
-    if slot.is_some() {
-        return Err(Error::Usage("--command/-c may only be used once".into()));
+fn no_value(flag: &str, inline: &Option<OsString>) -> Result<()> {
+    if inline.is_some() {
+        return Err(Error::Usage(format!("--{flag} does not take a value")));
     }
-    let command = value
-        .into_string()
-        .map_err(|_| Error::Usage("shell command must be utf-8".into()))?;
-    *slot = Some(command);
     Ok(())
+}
+
+fn set_config(slot: &mut ConfigMode, new: ConfigMode) -> Result<()> {
+    if matches!(
+        (&*slot, &new),
+        (ConfigMode::Explicit(_), ConfigMode::None) | (ConfigMode::None, ConfigMode::Explicit(_))
+    ) {
+        return Err(Error::Usage(CONFIG_CONFLICT.into()));
+    }
+    *slot = new;
+    Ok(())
+}
+
+fn into_utf8(flag: &str, value: OsString) -> Result<String> {
+    value
+        .into_string()
+        .map_err(|_| Error::Usage(format!("--{flag} value must be utf-8")))
 }

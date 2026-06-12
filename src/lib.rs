@@ -31,42 +31,49 @@ pub fn cli_main_with_args<I: IntoIterator<Item = OsString>>(args: I) {
         .first()
         .map_or_else(|| OsString::from("sbrun"), |a| a.clone());
     let program = program.to_string_lossy();
-    match parse_cli(args) {
+    let err = match parse_cli(args) {
         Ok(CliCommand::Help) => {
             print!("{}", help_text(&program));
+            return;
         }
         Ok(CliCommand::Version) => {
             println!("sbrun {}", env!("CARGO_PKG_VERSION"));
+            return;
         }
         Ok(CliCommand::KernelInstall) => match admin::kernel_install() {
-            Ok(()) => {}
-            Err(err) => {
-                eprintln!("sbrun: {err}");
-                std::process::exit(111);
-            }
+            Ok(()) => return,
+            Err(err) => err,
         },
         Ok(CliCommand::PromptInit(shell)) => match prompt::init_script(shell.as_deref()) {
             Ok(script) => {
                 print!("{script}");
+                return;
             }
-            Err(err) => {
-                eprintln!("sbrun: {err}");
-                std::process::exit(111);
-            }
+            Err(err) => err,
         },
-        Ok(CliCommand::Run { target, options }) => match run(target, options) {
-            Ok(_) => unreachable!(),
-            Err(err) => {
-                eprintln!("sbrun: {err}");
-                std::process::exit(111);
-            }
-        },
+        Ok(CliCommand::Run { target, options }) => run(target, options).unwrap_err(),
         Err(err) => {
             eprintln!("sbrun: {err}");
             eprintln!();
             eprint!("{}", help_text(&program));
             std::process::exit(111);
         }
+    };
+    eprintln!("sbrun: {err}");
+    std::process::exit(exit_code(&err));
+}
+
+fn exit_code(err: &Error) -> i32 {
+    match err {
+        Error::Io {
+            action: "exec",
+            source,
+        } => match source.raw_os_error() {
+            Some(libc::ENOENT) => 127,
+            Some(libc::EACCES | libc::ENOEXEC) => 126,
+            _ => 111,
+        },
+        _ => 111,
     }
 }
 
@@ -118,7 +125,9 @@ pub fn run(target: RunTarget, mut options: Options) -> Result<Infallible> {
         .home
         .as_ref()
         .map(|home| home.join(host::history_file_name(&host.shell)));
-    let envdir_root = prepare_env_dirs(&workdir, host.home.as_deref(), &options.env_dir)?;
+    #[cfg(target_os = "linux")]
+    let histfile = histfile.filter(|path| ensure_file(path));
+    let envdir_root = prepare_env_dirs(&workdir, &options.env_dir)?;
     let env_map = build_child_env(
         &host,
         &workdir,
@@ -142,7 +151,7 @@ pub fn run(target: RunTarget, mut options: Options) -> Result<Infallible> {
         sandbox::apply(&profile, &workdir, &tty_path, histfile.as_deref())?;
     }
     #[cfg(target_os = "linux")]
-    sandbox::apply(&workdir, &allowed.dirs, &allowed.files)?;
+    sandbox::apply(&workdir, &allowed.dirs, &allowed.files, histfile.as_deref())?;
 
     Err(Error::io("exec", command.exec()))
 }
@@ -167,20 +176,28 @@ fn dedup_validate_env_names(env_dir: &mut Vec<String>, unset_env: &mut Vec<Strin
     Ok(())
 }
 
-fn prepare_env_dirs(
-    workdir: &Path,
-    home: Option<&Path>,
-    env_dir: &[String],
-) -> Result<Option<PathBuf>> {
+fn prepare_env_dirs(workdir: &Path, env_dir: &[String]) -> Result<Option<PathBuf>> {
     if env_dir.is_empty() {
         return Ok(None);
     }
-    let root = pathutil::expand_home(&workdir.join(".sbrun"), home)?;
+    let root = workdir.join(".sbrun");
     pathutil::ensure_real_directory(&root)?;
     for name in env_dir {
         pathutil::ensure_real_directory(&root.join(name))?;
     }
     Ok(Some(root))
+}
+
+/// The Linux sandbox can only bind-mount existing files, so the history file
+/// must exist before entering the sandbox. Failure just means no history.
+#[cfg(target_os = "linux")]
+fn ensure_file(path: &Path) -> bool {
+    use std::fs::OpenOptions;
+    OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(path)
+        .is_ok()
 }
 
 fn build_child_env(
@@ -344,11 +361,7 @@ fn py_exec(
     no_config: bool,
 ) -> PyResult<()> {
     let config = match (config, no_config) {
-        (Some(_), true) => {
-            return Err(PyRuntimeError::new_err(
-                "--config and --no-config cannot be used together",
-            ));
-        }
+        (Some(_), true) => return Err(PyRuntimeError::new_err(cli::CONFIG_CONFLICT)),
         (Some(path), false) => ConfigMode::Explicit(PathBuf::from(path)),
         (None, true) => ConfigMode::None,
         (None, false) => ConfigMode::Default,
@@ -373,14 +386,10 @@ pub fn cli_main() {
 }
 
 #[pyfunction]
-fn _cli_main(py: Python<'_>) {
-    let sys = py.import("sys").expect("failed to import sys");
-    let argv: Vec<String> = sys
-        .getattr("argv")
-        .expect("no sys.argv")
-        .extract()
-        .expect("sys.argv not list of strings");
-    cli_main_with_args(argv.into_iter().map(OsString::from));
+fn _cli_main(py: Python<'_>) -> PyResult<()> {
+    let argv: Vec<OsString> = py.import("sys")?.getattr("argv")?.extract()?;
+    cli_main_with_args(argv);
+    Ok(())
 }
 
 #[pymodule]
@@ -537,6 +546,51 @@ mod tests {
         .err()
         .unwrap();
         assert!(err.to_string().contains("--prompt-init cannot be combined"));
+    }
+
+    #[test]
+    fn parse_unknown_long_option_errors() {
+        let err = parse_cli([OsString::from("sbrun"), OsString::from("--bogus")])
+            .err()
+            .unwrap();
+        assert!(err.to_string().contains("unknown option --bogus"));
+    }
+
+    #[test]
+    fn parse_combined_short_options_error() {
+        let err = parse_cli([
+            OsString::from("sbrun"),
+            OsString::from("-wc"),
+            OsString::from("/tmp"),
+        ])
+        .err()
+        .unwrap();
+        assert!(err.to_string().contains("unknown option"));
+    }
+
+    #[test]
+    fn parse_dash_command_after_separator() {
+        let parsed = parse_cli([
+            OsString::from("sbrun"),
+            OsString::from("--"),
+            OsString::from("--bogus"),
+        ])
+        .unwrap();
+        let CliCommand::Run { target, .. } = parsed else {
+            panic!()
+        };
+        let RunTarget::Exec(argv) = target else {
+            panic!()
+        };
+        assert_eq!(argv, vec![OsString::from("--bogus")]);
+    }
+
+    #[test]
+    fn parse_valueless_flag_rejects_value() {
+        let err = parse_cli([OsString::from("sbrun"), OsString::from("--no-config=x")])
+            .err()
+            .unwrap();
+        assert!(err.to_string().contains("does not take a value"));
     }
 
     #[test]

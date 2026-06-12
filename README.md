@@ -17,10 +17,17 @@ The implementation is a single Rust crate:
 
 ## Install
 
-Install the latest release:
+Install the latest release (macOS Apple Silicon only):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/AnswerDotAI/sbrun/main/install.sh | bash
+```
+
+On Linux, install the Python package (which includes the `sbrun` command) or
+build from source:
+
+```sh
+pip install sbrun
 ```
 
 Build locally:
@@ -79,11 +86,11 @@ cd /path/to/project
 sbrun --unset-env GITHUB_API_KEY --unset-env OPENAI_API_KEY -- python3 app.py
 ```
 
-If the command itself starts with `-`, use `--` to stop option parsing:
+If the command name itself starts with `-`, use `--` to stop option parsing:
 
 ```sh
 cd /path/to/project
-sbrun -- -lc 'printf hello\n'
+sbrun -- ./-strange-binary
 ```
 
 Help and version:
@@ -106,6 +113,7 @@ sudo sbrun --kernel-install
 - `-u, --unset-env VAR`: remove `VAR` from the child environment; repeatable
 - `-c, --command STRING`: run `$SHELL -lc STRING`
 - `--kernel-install`: install `/etc/sysctl.d/90-sbrun.conf` and run `sysctl --system` (Linux only; must be root, e.g. via `sudo`)
+- `--prompt-init[=bash|zsh]`: print shell code for the lock icon prompt hook
 - `--config PATH`: load that TOML file and ignore the standard config locations
 - `--no-config`: ignore config files entirely
 - `--`: stop parsing `sbrun` options
@@ -120,7 +128,9 @@ Behavior:
 - `HOME` stays your real home directory when one is available
 - `TMPDIR` is set to `/tmp`
 - the shell history file is writable by default
+- file descriptors above stderr are closed before the command runs
 - stdout/stderr redirected to regular files outside allowed writable paths are rejected unless `SBRUN_ALLOW_STDIO_REDIRECTS=1`
+- exit codes: 127 if the command is not found, 126 if it is not executable, 111 for other `sbrun` errors
 
 To add a lock icon to sandboxed bash or zsh prompts, put this in your
 `~/.bashrc` or `~/.zshrc`:
@@ -190,6 +200,12 @@ namespaces (`CLONE_NEWNS`), the same approach used by
 [bubblewrap](https://github.com/containers/bubblewrap). The root filesystem
 is bind-mounted read-only, then writable paths are bind-mounted back on top.
 Default installs require neither root nor setuid.
+
+When neither the working directory nor any allowed write path is under
+`/tmp`, a private 256M tmpfs is mounted on `/tmp` so that `TMPDIR` stays
+usable; its contents are discarded when the sandbox exits. When `/tmp` is
+writable (the default config allows it), the real shared `/tmp` is used, as
+on macOS.
 
 If the native `sbrun` binary is installed root-owned and setuid, `sbrun`
 automatically switches to a privileged Linux backend. In that mode it skips
