@@ -18,14 +18,15 @@ classifiers = [
   "Topic :: Utilities",
 ]
 
-[project.scripts]
-sbrun = "sbrun:_cli_main"
-
 [project.optional-dependencies]
 dev = [
+  "fastship>=0.0.11",
   "maturin>=1.8,<2",
   "pytest>=8",
 ]
 
 [tool.maturin]
-bindings = "pyo3"
+bindings = "bin"
+
+[tool.fastship]
+branch = "main"

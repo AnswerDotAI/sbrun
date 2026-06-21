@@ -5,7 +5,7 @@ Developer workflow and release notes for `sbrun`.
 ## Layout
 
 - `src/main.rs`: CLI entrypoint
-- `src/lib.rs`: shared runtime plus PyO3 module
+- `src/lib.rs`: shared runtime (CLI dispatch, sandbox orchestration, env setup)
 - `src/cli.rs`: argument parsing and help text
 - `src/admin.rs`: `--kernel-install` implementation
 - `src/prompt.rs`: `--prompt-init` shell hook generation
@@ -22,7 +22,7 @@ Developer workflow and release notes for `sbrun`.
 
 ## Local Build
 
-Build and install a debug binary plus Python extension:
+Build a debug binary and install the `sbrun` CLI into the active venv:
 
 ```sh
 ./tools/local-build.sh
@@ -31,9 +31,9 @@ Build and install a debug binary plus Python extension:
 Or manually:
 
 ```sh
-python -m pip install -e '.[dev]'
-cargo build
-maturin develop
+python -m pip install -e '.[dev]'   # dev deps (pytest, maturin)
+cargo build                          # produces target/debug/sbrun (used by the tests)
+maturin develop                      # installs the sbrun binary onto the venv PATH
 ```
 
 ## Testing
@@ -63,7 +63,7 @@ The canonical version lives in `Cargo.toml`.
 Bump the patch version with:
 
 ```sh
-tools/bump.sh
+ship-rs-bump
 ```
 
 ## Release
@@ -75,16 +75,16 @@ The workflow builds on both macOS and Linux in parallel:
 
 - installs Rust and Python
 - builds `target/release/sbrun`
-- builds the Python wheel with `maturin build --release --strip`
+- builds the wheel (the `sbrun` binary packaged for `pip install`, via maturin `bin` bindings) with `maturin build --release --strip`
 - packages platform-specific tarballs (e.g. `sbrun-v0.0.3-macos-arm64.tar.gz`,
   `sbrun-v0.0.3-linux-x86_64.tar.gz`)
 - uploads all assets and wheels to a single GitHub release
 
 For the local release flow:
 
-1. run `tools/bump.sh`
+1. run `ship-rs-bump`
 2. review and commit the version change
-3. run `tools/release.sh`
+3. run `ship-rs-release`
 
 ## PyPI
 

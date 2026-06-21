@@ -73,9 +73,7 @@ where
             }
             "write" => write.push(PathBuf::from(take_value(&flag, inline, &mut args)?)),
             "env-dir" => env_dir.push(into_utf8(&flag, take_value(&flag, inline, &mut args)?)?),
-            "unset-env" => {
-                unset_env.push(into_utf8(&flag, take_value(&flag, inline, &mut args)?)?)
-            }
+            "unset-env" => unset_env.push(into_utf8(&flag, take_value(&flag, inline, &mut args)?)?),
             "command" => {
                 if shell_command.is_some() {
                     return Err(Error::Usage("--command/-c may only be used once".into()));
@@ -183,7 +181,10 @@ fn parse_option(arg: &OsStr) -> Result<Option<(String, Option<OsString>)>> {
     }
     if let Some(body) = bytes.strip_prefix(b"--") {
         let (name, value) = match body.iter().position(|&b| b == b'=') {
-            Some(eq) => (&body[..eq], Some(OsString::from_vec(body[eq + 1..].to_vec()))),
+            Some(eq) => (
+                &body[..eq],
+                Some(OsString::from_vec(body[eq + 1..].to_vec())),
+            ),
             None => (body, None),
         };
         let name = std::str::from_utf8(name)

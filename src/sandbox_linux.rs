@@ -303,11 +303,27 @@ mod tests {
     #[test]
     fn tmpfs_skipped_when_tmp_writable() {
         let no = Vec::new();
-        assert!(tmp_overlaps_writes(Path::new("/work"), &[PathBuf::from("/tmp")], &no));
-        assert!(tmp_overlaps_writes(Path::new("/work"), &[PathBuf::from("/tmp/foo")], &no));
+        assert!(tmp_overlaps_writes(
+            Path::new("/work"),
+            &[PathBuf::from("/tmp")],
+            &no
+        ));
+        assert!(tmp_overlaps_writes(
+            Path::new("/work"),
+            &[PathBuf::from("/tmp/foo")],
+            &no
+        ));
         assert!(tmp_overlaps_writes(Path::new("/tmp/proj"), &no, &no));
-        assert!(tmp_overlaps_writes(Path::new("/work"), &no, &[PathBuf::from("/tmp/f")]));
-        assert!(!tmp_overlaps_writes(Path::new("/work"), &[PathBuf::from("/data")], &no));
+        assert!(tmp_overlaps_writes(
+            Path::new("/work"),
+            &no,
+            &[PathBuf::from("/tmp/f")]
+        ));
+        assert!(!tmp_overlaps_writes(
+            Path::new("/work"),
+            &[PathBuf::from("/data")],
+            &no
+        ));
     }
 
     #[test]

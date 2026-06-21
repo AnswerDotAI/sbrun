@@ -19,8 +19,6 @@ use std::{
     process::Command,
 };
 
-use pyo3::{exceptions::PyRuntimeError, prelude::*, types::PyModule};
-
 pub use cli::{Command as CliCommand, help_text, parse as parse_cli};
 pub use config::ConfigMode;
 pub use error::{Error, Result};
@@ -90,17 +88,6 @@ pub enum RunTarget {
     InteractiveShell,
     ShellCommand(String),
     Exec(Vec<OsString>),
-}
-
-pub fn exec<I, S>(argv: I, options: Options) -> Result<Infallible>
-where
-    I: IntoIterator<Item = S>,
-    S: Into<OsString>,
-{
-    run(
-        RunTarget::Exec(argv.into_iter().map(Into::into).collect()),
-        options,
-    )
 }
 
 pub fn run(target: RunTarget, mut options: Options) -> Result<Infallible> {
@@ -351,53 +338,8 @@ fn set_env(env_map: &mut Vec<(OsString, OsString)>, key: &str, value: &OsStr) {
     env_map.push((OsString::from(key), value.to_os_string()));
 }
 
-#[pyfunction(name = "exec", signature=(argv, *, write=None, env_dir=None, unset_env=None, config=None, no_config=false))]
-fn py_exec(
-    argv: Vec<String>,
-    write: Option<Vec<String>>,
-    env_dir: Option<Vec<String>>,
-    unset_env: Option<Vec<String>>,
-    config: Option<String>,
-    no_config: bool,
-) -> PyResult<()> {
-    let config = match (config, no_config) {
-        (Some(_), true) => return Err(PyRuntimeError::new_err(cli::CONFIG_CONFLICT)),
-        (Some(path), false) => ConfigMode::Explicit(PathBuf::from(path)),
-        (None, true) => ConfigMode::None,
-        (None, false) => ConfigMode::Default,
-    };
-    let options = Options {
-        write: write
-            .unwrap_or_default()
-            .into_iter()
-            .map(PathBuf::from)
-            .collect(),
-        env_dir: env_dir.unwrap_or_default(),
-        unset_env: unset_env.unwrap_or_default(),
-        config,
-    };
-    exec(argv.into_iter().map(OsString::from), options)
-        .map(|_| ())
-        .map_err(|err| PyRuntimeError::new_err(err.to_string()))
-}
-
 pub fn cli_main() {
     cli_main_with_args(env::args_os())
-}
-
-#[pyfunction]
-fn _cli_main(py: Python<'_>) -> PyResult<()> {
-    let argv: Vec<OsString> = py.import("sys")?.getattr("argv")?.extract()?;
-    cli_main_with_args(argv);
-    Ok(())
-}
-
-#[pymodule]
-fn sbrun(module: &Bound<'_, PyModule>) -> PyResult<()> {
-    module.add_function(wrap_pyfunction!(py_exec, module)?)?;
-    module.add_function(wrap_pyfunction!(_cli_main, module)?)?;
-    module.add("__version__", env!("CARGO_PKG_VERSION"))?;
-    Ok(())
 }
 
 #[cfg(test)]

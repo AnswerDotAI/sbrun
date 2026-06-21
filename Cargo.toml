@@ -7,22 +7,19 @@ description = "Run commands in a sandbox with writes confined to selected paths"
 license = "MIT"
 
 [lib]
-crate-type = ["rlib", "cdylib"]
+crate-type = ["rlib"]
 
 [[bin]]
 name = "sbrun"
 path = "src/main.rs"
 
 [dependencies]
-libc = "0.2"
-pyo3 = { version = "0.28.2", features = ["abi3-py39", "extension-module"] }
+libc = ">=0.2"
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
-toml = "0.9"
-
-[build-dependencies]
-pyo3-build-config = "0.28.3"
+toml = ">=0.9"
 
 [profile.release]
 lto = "thin"
 codegen-units = 1
+panic = "abort"
