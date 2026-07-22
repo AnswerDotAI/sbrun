@@ -2,7 +2,7 @@
 name = "sbrun"
 version = "0.0.13"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.91"
 description = "Run commands in a sandbox with writes confined to selected paths"
 license = "MIT"
 

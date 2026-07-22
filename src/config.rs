@@ -45,10 +45,11 @@ struct RawConfig {
 pub fn load(mode: &ConfigMode, home: Option<&Path>) -> Result<WriteConfig> {
     let mut config = WriteConfig::default();
     let paths = config_paths(mode, home);
-    if matches!(mode, ConfigMode::Default) && !paths.iter().any(|p| p.exists()) {
-        if let Some(path) = user_config_path(home) {
-            ensure_default_config(&path);
-        }
+    if matches!(mode, ConfigMode::Default)
+        && !paths.iter().any(|p| p.exists())
+        && let Some(path) = user_config_path(home)
+    {
+        ensure_default_config(&path);
     }
     for path in &paths {
         let raw = match fs::read_to_string(path) {
@@ -70,8 +71,8 @@ pub fn load(mode: &ConfigMode, home: Option<&Path>) -> Result<WriteConfig> {
                 path: path.display().to_string(),
             });
         }
-        validate_config_paths(&path, &parsed.write)?;
-        validate_config_paths(&path, &parsed.optional_write)?;
+        validate_config_paths(path, &parsed.write)?;
+        validate_config_paths(path, &parsed.optional_write)?;
         config.required.extend(parsed.write);
         config.optional.extend(parsed.optional_write);
     }
