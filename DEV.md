@@ -82,9 +82,9 @@ The workflow builds on both macOS and Linux in parallel:
 
 For the local release flow:
 
-1. run `ship-rs-bump`
-2. review and commit the version change
-3. run `ship-rs-release`
+1. run `ship-release` - it tags the version already in `Cargo.toml`, pushes branch and tag (CI publishes), then bumps and pushes the bump
+
+Note: this repo previously bumped *before* releasing, so on the first use of this flow check that `Cargo.toml` carries the version you intend to ship (one above the last release); if not, run `ship-bump`, review, and commit first.
 
 ## PyPI
 
