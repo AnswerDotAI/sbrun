@@ -97,24 +97,18 @@ where
 
     if kernel_install {
         if has_run_args || prompt_init.is_some() {
-            return Err(Error::Usage(
-                "--kernel-install cannot be combined with other options or commands".into(),
-            ));
+            return Err(Error::Usage("--kernel-install cannot be combined with other options or commands".into()));
         }
         return Ok(Command::KernelInstall);
     }
     if let Some(shell) = prompt_init {
         if has_run_args {
-            return Err(Error::Usage(
-                "--prompt-init cannot be combined with other options or commands".into(),
-            ));
+            return Err(Error::Usage("--prompt-init cannot be combined with other options or commands".into()));
         }
         return Ok(Command::PromptInit(shell));
     }
     if shell_command.is_some() && !command.is_empty() {
-        return Err(Error::Usage(
-            "use either --command/-c or a direct command, not both".into(),
-        ));
+        return Err(Error::Usage("use either --command/-c or a direct command, not both".into()));
     }
 
     let target = if let Some(command) = shell_command {
@@ -125,15 +119,7 @@ where
         RunTarget::Exec(command)
     };
 
-    Ok(Command::Run {
-        target,
-        options: Options {
-            write,
-            env_dir,
-            unset_env,
-            config,
-        },
-    })
+    Ok(Command::Run { target, options: Options { write, env_dir, unset_env, config } })
 }
 
 pub fn help_text(program: &str) -> String {
@@ -181,14 +167,10 @@ fn parse_option(arg: &OsStr) -> Result<Option<(String, Option<OsString>)>> {
     }
     if let Some(body) = bytes.strip_prefix(b"--") {
         let (name, value) = match body.iter().position(|&b| b == b'=') {
-            Some(eq) => (
-                &body[..eq],
-                Some(OsString::from_vec(body[eq + 1..].to_vec())),
-            ),
+            Some(eq) => (&body[..eq], Some(OsString::from_vec(body[eq + 1..].to_vec()))),
             None => (body, None),
         };
-        let name = std::str::from_utf8(name)
-            .map_err(|_| Error::Usage("option names must be utf-8".into()))?;
+        let name = std::str::from_utf8(name).map_err(|_| Error::Usage("option names must be utf-8".into()))?;
         return Ok(Some((name.to_string(), value)));
     }
     let text = arg.to_string_lossy();
@@ -211,10 +193,7 @@ fn take_value<I>(flag: &str, inline: Option<OsString>, args: &mut I) -> Result<O
 where
     I: Iterator<Item = OsString>,
 {
-    inline
-        .or_else(|| args.next())
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| Error::Usage(format!("--{flag} requires a value")))
+    inline.or_else(|| args.next()).filter(|value| !value.is_empty()).ok_or_else(|| Error::Usage(format!("--{flag} requires a value")))
 }
 
 fn no_value(flag: &str, inline: &Option<OsString>) -> Result<()> {
@@ -225,10 +204,7 @@ fn no_value(flag: &str, inline: &Option<OsString>) -> Result<()> {
 }
 
 fn set_config(slot: &mut ConfigMode, new: ConfigMode) -> Result<()> {
-    if matches!(
-        (&*slot, &new),
-        (ConfigMode::Explicit(_), ConfigMode::None) | (ConfigMode::None, ConfigMode::Explicit(_))
-    ) {
+    if matches!((&*slot, &new), (ConfigMode::Explicit(_), ConfigMode::None) | (ConfigMode::None, ConfigMode::Explicit(_))) {
         return Err(Error::Usage(CONFIG_CONFLICT.into()));
     }
     *slot = new;
@@ -236,7 +212,5 @@ fn set_config(slot: &mut ConfigMode, new: ConfigMode) -> Result<()> {
 }
 
 fn into_utf8(flag: &str, value: OsString) -> Result<String> {
-    value
-        .into_string()
-        .map_err(|_| Error::Usage(format!("--{flag} value must be utf-8")))
+    value.into_string().map_err(|_| Error::Usage(format!("--{flag} value must be utf-8")))
 }

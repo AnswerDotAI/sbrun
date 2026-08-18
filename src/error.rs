@@ -53,10 +53,6 @@ impl Error {
     }
 
     pub fn io_path(action: &'static str, path: &Path, source: io::Error) -> Self {
-        Self::IoPath {
-            action,
-            path: path.display().to_string(),
-            source,
-        }
+        Self::IoPath { action, path: path.display().to_string(), source }
     }
 }

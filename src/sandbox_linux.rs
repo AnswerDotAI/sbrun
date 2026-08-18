@@ -31,44 +31,23 @@ impl PreflightPrivilegeGuard {
     }
 }
 
-pub fn apply(
-    workdir: &Path,
-    write_dirs: &[PathBuf],
-    write_files: &[PathBuf],
-    histfile: Option<&Path>,
-) -> Result<()> {
+pub fn apply(workdir: &Path, write_dirs: &[PathBuf], write_files: &[PathBuf], histfile: Option<&Path>) -> Result<()> {
     match mode_from_ids(current_ids()) {
-        PrivilegeMode::Unprivileged => {
-            apply_unprivileged(workdir, write_dirs, write_files, histfile)
-        }
+        PrivilegeMode::Unprivileged => apply_unprivileged(workdir, write_dirs, write_files, histfile),
         PrivilegeMode::Privileged => apply_privileged(workdir, write_dirs, write_files, histfile),
     }
 }
 
-fn apply_unprivileged(
-    workdir: &Path,
-    write_dirs: &[PathBuf],
-    write_files: &[PathBuf],
-    histfile: Option<&Path>,
-) -> Result<()> {
+fn apply_unprivileged(workdir: &Path, write_dirs: &[PathBuf], write_files: &[PathBuf], histfile: Option<&Path>) -> Result<()> {
     let uid = unsafe { libc::getuid() };
     let gid = unsafe { libc::getgid() };
 
-    check(
-        unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) },
-        "prctl(NO_NEW_PRIVS)",
-    )?;
-    check(
-        unsafe { libc::unshare(libc::CLONE_NEWUSER | libc::CLONE_NEWNS) },
-        "unshare",
-    )?;
+    check(unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) }, "prctl(NO_NEW_PRIVS)")?;
+    check(unsafe { libc::unshare(libc::CLONE_NEWUSER | libc::CLONE_NEWNS) }, "unshare")?;
 
-    fs::write("/proc/self/setgroups", "deny")
-        .map_err(|e| Error::io_path("write", Path::new("/proc/self/setgroups"), e))?;
-    fs::write("/proc/self/uid_map", format!("{uid} {uid} 1"))
-        .map_err(|e| Error::io_path("write", Path::new("/proc/self/uid_map"), e))?;
-    fs::write("/proc/self/gid_map", format!("{gid} {gid} 1"))
-        .map_err(|e| Error::io_path("write", Path::new("/proc/self/gid_map"), e))?;
+    fs::write("/proc/self/setgroups", "deny").map_err(|e| Error::io_path("write", Path::new("/proc/self/setgroups"), e))?;
+    fs::write("/proc/self/uid_map", format!("{uid} {uid} 1")).map_err(|e| Error::io_path("write", Path::new("/proc/self/uid_map"), e))?;
+    fs::write("/proc/self/gid_map", format!("{gid} {gid} 1")).map_err(|e| Error::io_path("write", Path::new("/proc/self/gid_map"), e))?;
 
     setup_mounts(workdir, write_dirs, write_files, histfile)?;
 
@@ -78,20 +57,12 @@ fn apply_unprivileged(
     Ok(())
 }
 
-fn apply_privileged(
-    workdir: &Path,
-    write_dirs: &[PathBuf],
-    write_files: &[PathBuf],
-    histfile: Option<&Path>,
-) -> Result<()> {
+fn apply_privileged(workdir: &Path, write_dirs: &[PathBuf], write_files: &[PathBuf], histfile: Option<&Path>) -> Result<()> {
     check(unsafe { libc::unshare(libc::CLONE_NEWNS) }, "unshare")?;
     setup_mounts(workdir, write_dirs, write_files, histfile)?;
 
     permanently_drop_privileges()?;
-    check(
-        unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) },
-        "prctl(NO_NEW_PRIVS)",
-    )?;
+    check(unsafe { libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) }, "prctl(NO_NEW_PRIVS)")?;
 
     let cwd = c_path(workdir)?;
     check(unsafe { libc::chdir(cwd.as_ptr()) }, "chdir")?;
@@ -99,22 +70,9 @@ fn apply_privileged(
     Ok(())
 }
 
-fn setup_mounts(
-    workdir: &Path,
-    write_dirs: &[PathBuf],
-    write_files: &[PathBuf],
-    histfile: Option<&Path>,
-) -> Result<()> {
+fn setup_mounts(workdir: &Path, write_dirs: &[PathBuf], write_files: &[PathBuf], histfile: Option<&Path>) -> Result<()> {
     check(
-        unsafe {
-            libc::mount(
-                ptr::null(),
-                c("/")?.as_ptr(),
-                ptr::null(),
-                libc::MS_PRIVATE | libc::MS_REC,
-                ptr::null(),
-            )
-        },
+        unsafe { libc::mount(ptr::null(), c("/")?.as_ptr(), ptr::null(), libc::MS_PRIVATE | libc::MS_REC, ptr::null()) },
         "make-private",
     )?;
 
@@ -168,9 +126,7 @@ fn permanently_drop_privileges() -> Result<()> {
     check(unsafe { libc::setresuid(uid, uid, uid) }, "setresuid")?;
 
     if unsafe { libc::geteuid() } != uid || unsafe { libc::getegid() } != gid {
-        return Err(Error::Sandbox(
-            "failed to drop privileges permanently".into(),
-        ));
+        return Err(Error::Sandbox("failed to drop privileges permanently".into()));
     }
     Ok(())
 }
@@ -180,11 +136,7 @@ fn current_ids() -> (libc::uid_t, libc::uid_t) {
 }
 
 fn mode_from_ids((_, euid): (libc::uid_t, libc::uid_t)) -> PrivilegeMode {
-    if euid == 0 {
-        PrivilegeMode::Privileged
-    } else {
-        PrivilegeMode::Unprivileged
-    }
+    if euid == 0 { PrivilegeMode::Privileged } else { PrivilegeMode::Unprivileged }
 }
 
 fn needs_preflight_drop((uid, euid): (libc::uid_t, libc::uid_t)) -> bool {
@@ -205,12 +157,7 @@ struct MountAttr {
 
 fn mount_setattr_ro_rec(path: &Path) -> Result<()> {
     let p = c_path(path)?;
-    let attr = MountAttr {
-        attr_set: MOUNT_ATTR_RDONLY | MOUNT_ATTR_NOSUID,
-        attr_clr: 0,
-        propagation: 0,
-        userns_fd: 0,
-    };
+    let attr = MountAttr { attr_set: MOUNT_ATTR_RDONLY | MOUNT_ATTR_NOSUID, attr_clr: 0, propagation: 0, userns_fd: 0 };
     let rc = unsafe {
         libc::syscall(
             libc::SYS_mount_setattr,
@@ -222,11 +169,7 @@ fn mount_setattr_ro_rec(path: &Path) -> Result<()> {
         )
     };
     if rc != 0 {
-        return Err(Error::Sandbox(format!(
-            "mount_setattr {}: {}",
-            path.display(),
-            std::io::Error::last_os_error()
-        )));
+        return Err(Error::Sandbox(format!("mount_setattr {}: {}", path.display(), std::io::Error::last_os_error())));
     }
     Ok(())
 }
@@ -234,32 +177,15 @@ fn mount_setattr_ro_rec(path: &Path) -> Result<()> {
 fn bind(src: &Path, dest: &Path, readonly: bool) -> Result<()> {
     let s = c_path(src)?;
     let d = c_path(dest)?;
-    if unsafe {
-        libc::mount(
-            s.as_ptr(),
-            d.as_ptr(),
-            ptr::null(),
-            libc::MS_BIND | libc::MS_REC,
-            ptr::null(),
-        )
-    } != 0
-    {
-        return Err(Error::Sandbox(format!(
-            "bind-mount {}: {}",
-            src.display(),
-            std::io::Error::last_os_error()
-        )));
+    if unsafe { libc::mount(s.as_ptr(), d.as_ptr(), ptr::null(), libc::MS_BIND | libc::MS_REC, ptr::null()) } != 0 {
+        return Err(Error::Sandbox(format!("bind-mount {}: {}", src.display(), std::io::Error::last_os_error())));
     }
     if readonly {
         return mount_setattr_ro_rec(dest);
     }
     let flags = libc::MS_BIND | libc::MS_REMOUNT | libc::MS_REC | libc::MS_NOSUID | libc::MS_NODEV;
     if unsafe { libc::mount(ptr::null(), d.as_ptr(), ptr::null(), flags, ptr::null()) } != 0 {
-        return Err(Error::Sandbox(format!(
-            "remount {}: {}",
-            dest.display(),
-            std::io::Error::last_os_error()
-        )));
+        return Err(Error::Sandbox(format!("remount {}: {}", dest.display(), std::io::Error::last_os_error())));
     }
     Ok(())
 }
@@ -292,8 +218,7 @@ fn c(s: &str) -> Result<CString> {
 }
 
 fn c_path(p: &Path) -> Result<CString> {
-    CString::new(p.as_os_str().as_encoded_bytes())
-        .map_err(|_| Error::Usage("path contains NUL".into()))
+    CString::new(p.as_os_str().as_encoded_bytes()).map_err(|_| Error::Usage("path contains NUL".into()))
 }
 
 #[cfg(test)]
@@ -303,27 +228,11 @@ mod tests {
     #[test]
     fn tmpfs_skipped_when_tmp_writable() {
         let no = Vec::new();
-        assert!(tmp_overlaps_writes(
-            Path::new("/work"),
-            &[PathBuf::from("/tmp")],
-            &no
-        ));
-        assert!(tmp_overlaps_writes(
-            Path::new("/work"),
-            &[PathBuf::from("/tmp/foo")],
-            &no
-        ));
+        assert!(tmp_overlaps_writes(Path::new("/work"), &[PathBuf::from("/tmp")], &no));
+        assert!(tmp_overlaps_writes(Path::new("/work"), &[PathBuf::from("/tmp/foo")], &no));
         assert!(tmp_overlaps_writes(Path::new("/tmp/proj"), &no, &no));
-        assert!(tmp_overlaps_writes(
-            Path::new("/work"),
-            &no,
-            &[PathBuf::from("/tmp/f")]
-        ));
-        assert!(!tmp_overlaps_writes(
-            Path::new("/work"),
-            &[PathBuf::from("/data")],
-            &no
-        ));
+        assert!(tmp_overlaps_writes(Path::new("/work"), &no, &[PathBuf::from("/tmp/f")]));
+        assert!(!tmp_overlaps_writes(Path::new("/work"), &[PathBuf::from("/data")], &no));
     }
 
     #[test]

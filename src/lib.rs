@@ -25,9 +25,7 @@ pub use error::{Error, Result};
 
 pub fn cli_main_with_args<I: IntoIterator<Item = OsString>>(args: I) {
     let args: Vec<OsString> = args.into_iter().collect();
-    let program = args
-        .first()
-        .map_or_else(|| OsString::from("sbrun"), |a| a.clone());
+    let program = args.first().map_or_else(|| OsString::from("sbrun"), |a| a.clone());
     let program = program.to_string_lossy();
     let err = match parse_cli(args) {
         Ok(CliCommand::Help) => {
@@ -63,10 +61,7 @@ pub fn cli_main_with_args<I: IntoIterator<Item = OsString>>(args: I) {
 
 fn exit_code(err: &Error) -> i32 {
     match err {
-        Error::Io {
-            action: "exec",
-            source,
-        } => match source.raw_os_error() {
+        Error::Io { action: "exec", source } => match source.raw_os_error() {
             Some(libc::ENOENT) => 127,
             Some(libc::EACCES | libc::ENOEXEC) => 126,
             _ => 111,
@@ -96,9 +91,7 @@ pub fn run(target: RunTarget, mut options: Options) -> Result<Infallible> {
 
     let host = host::current()?;
     let workdir = env::current_dir().map_err(|err| Error::io("get current directory", err))?;
-    let workdir = workdir
-        .canonicalize()
-        .map_err(|err| Error::io_path("resolve current directory", &workdir, err))?;
+    let workdir = workdir.canonicalize().map_err(|err| Error::io_path("resolve current directory", &workdir, err))?;
 
     dedup_validate_env_names(&mut options.env_dir, &mut options.unset_env)?;
     let config = config::load(&options.config, host.home.as_deref())?;
@@ -108,21 +101,11 @@ pub fn run(target: RunTarget, mut options: Options) -> Result<Infallible> {
     let allowed = pathutil::resolve_writes(&required, &config.optional, host.home.as_deref())?;
     pathutil::refuse_redirected_regular_stdio(&workdir, &allowed)?;
 
-    let histfile = host
-        .home
-        .as_ref()
-        .map(|home| home.join(host::history_file_name(&host.shell)));
+    let histfile = host.home.as_ref().map(|home| home.join(host::history_file_name(&host.shell)));
     #[cfg(target_os = "linux")]
     let histfile = histfile.filter(|path| ensure_file(path));
     let envdir_root = prepare_env_dirs(&workdir, &options.env_dir)?;
-    let env_map = build_child_env(
-        &host,
-        &workdir,
-        histfile.as_deref(),
-        envdir_root.as_deref(),
-        &options.env_dir,
-        &options.unset_env,
-    );
+    let env_map = build_child_env(&host, &workdir, histfile.as_deref(), envdir_root.as_deref(), &options.env_dir, &options.unset_env);
     let mut command = build_command(target, &host.shell, &workdir, &env_map)?;
     host::close_extra_fds();
 
@@ -180,20 +163,11 @@ fn prepare_env_dirs(workdir: &Path, env_dir: &[String]) -> Result<Option<PathBuf
 #[cfg(target_os = "linux")]
 fn ensure_file(path: &Path) -> bool {
     use std::fs::OpenOptions;
-    OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open(path)
-        .is_ok()
+    OpenOptions::new().append(true).create(true).open(path).is_ok()
 }
 
 fn build_child_env(
-    host: &host::Host,
-    workdir: &Path,
-    histfile: Option<&Path>,
-    envdir_root: Option<&Path>,
-    env_dir: &[String],
-    unset_env: &[String],
+    host: &host::Host, workdir: &Path, histfile: Option<&Path>, envdir_root: Option<&Path>, env_dir: &[String], unset_env: &[String],
 ) -> Vec<(OsString, OsString)> {
     let mut env_map: Vec<(OsString, OsString)> = env::vars_os().collect();
     remove_env(&mut env_map, "BASH_ENV");
@@ -235,11 +209,7 @@ fn build_child_env(
     set_env(&mut env_map, "SBRUN_ACTIVE", OsStr::new("1"));
 
     if host::shell_is_bash(&host.shell) {
-        set_env(
-            &mut env_map,
-            "BASH_SILENCE_DEPRECATION_WARNING",
-            OsStr::new("1"),
-        );
+        set_env(&mut env_map, "BASH_SILENCE_DEPRECATION_WARNING", OsStr::new("1"));
     } else {
         remove_env(&mut env_map, "BASH_SILENCE_DEPRECATION_WARNING");
     }
@@ -264,12 +234,7 @@ fn build_child_env(
     env_map
 }
 
-fn build_command(
-    target: RunTarget,
-    shell: &Path,
-    workdir: &Path,
-    env_map: &[(OsString, OsString)],
-) -> Result<Command> {
+fn build_command(target: RunTarget, shell: &Path, workdir: &Path, env_map: &[(OsString, OsString)]) -> Result<Command> {
     let mut command = match target {
         RunTarget::InteractiveShell => {
             let mut command = Command::new(shell);
@@ -305,8 +270,7 @@ fn dedup(values: &mut Vec<String>) {
 
 fn valid_env_name(name: &str) -> bool {
     let mut chars = name.chars();
-    matches!(chars.next(), Some(c) if c == '_' || c.is_ascii_alphabetic())
-        && chars.all(|c| c == '_' || c.is_ascii_alphanumeric())
+    matches!(chars.next(), Some(c) if c == '_' || c.is_ascii_alphabetic()) && chars.all(|c| c == '_' || c.is_ascii_alphanumeric())
 }
 
 fn reserved_unset_env(name: &str) -> bool {
@@ -345,51 +309,26 @@ pub fn cli_main() {
 #[cfg(test)]
 mod tests {
     use crate::{
-        CliCommand, ConfigMode, RunTarget, dedup, dedup_validate_env_names, parse_cli, remove_env,
-        reserved_unset_env, set_env, valid_env_name,
+        CliCommand, ConfigMode, RunTarget, dedup, dedup_validate_env_names, parse_cli, remove_env, reserved_unset_env, set_env,
+        valid_env_name,
     };
     use std::ffi::{OsStr, OsString};
 
     #[test]
     fn parse_direct_command() {
-        let parsed = parse_cli([
-            OsString::from("sbrun"),
-            OsString::from("python3"),
-            OsString::from("-c"),
-            OsString::from("print(1)"),
-        ])
-        .unwrap();
-        let CliCommand::Run { target, options } = parsed else {
-            panic!("expected run command")
-        };
+        let parsed =
+            parse_cli([OsString::from("sbrun"), OsString::from("python3"), OsString::from("-c"), OsString::from("print(1)")]).unwrap();
+        let CliCommand::Run { target, options } = parsed else { panic!("expected run command") };
         assert!(matches!(options.config, ConfigMode::Default));
-        let RunTarget::Exec(argv) = target else {
-            panic!("expected direct command")
-        };
-        assert_eq!(
-            argv,
-            vec![
-                OsString::from("python3"),
-                OsString::from("-c"),
-                OsString::from("print(1)")
-            ]
-        );
+        let RunTarget::Exec(argv) = target else { panic!("expected direct command") };
+        assert_eq!(argv, vec![OsString::from("python3"), OsString::from("-c"), OsString::from("print(1)")]);
     }
 
     #[test]
     fn parse_shell_command() {
-        let parsed = parse_cli([
-            OsString::from("sbrun"),
-            OsString::from("-c"),
-            OsString::from("echo hi"),
-        ])
-        .unwrap();
-        let CliCommand::Run { target, .. } = parsed else {
-            panic!("expected run command")
-        };
-        let RunTarget::ShellCommand(text) = target else {
-            panic!("expected shell command")
-        };
+        let parsed = parse_cli([OsString::from("sbrun"), OsString::from("-c"), OsString::from("echo hi")]).unwrap();
+        let CliCommand::Run { target, .. } = parsed else { panic!("expected run command") };
+        let RunTarget::ShellCommand(text) = target else { panic!("expected shell command") };
         assert_eq!(text, "echo hi");
     }
 
@@ -406,25 +345,16 @@ mod tests {
             OsString::from("hi"),
         ])
         .unwrap();
-        let CliCommand::Run { options, .. } = parsed else {
-            panic!()
-        };
+        let CliCommand::Run { options, .. } = parsed else { panic!() };
         assert_eq!(options.write, vec![std::path::PathBuf::from("/tmp")]);
         assert_eq!(options.unset_env, vec!["FOO".to_string()]);
     }
 
     #[test]
     fn parse_no_config() {
-        let parsed = parse_cli([
-            OsString::from("sbrun"),
-            OsString::from("--no-config"),
-            OsString::from("echo"),
-            OsString::from("hi"),
-        ])
-        .unwrap();
-        let CliCommand::Run { options, .. } = parsed else {
-            panic!()
-        };
+        let parsed =
+            parse_cli([OsString::from("sbrun"), OsString::from("--no-config"), OsString::from("echo"), OsString::from("hi")]).unwrap();
+        let CliCommand::Run { options, .. } = parsed else { panic!() };
         assert!(matches!(options.config, ConfigMode::None));
     }
 
@@ -442,24 +372,14 @@ mod tests {
 
     #[test]
     fn parse_kernel_install() {
-        let parsed =
-            parse_cli([OsString::from("sbrun"), OsString::from("--kernel-install")]).unwrap();
+        let parsed = parse_cli([OsString::from("sbrun"), OsString::from("--kernel-install")]).unwrap();
         assert!(matches!(parsed, CliCommand::KernelInstall));
     }
 
     #[test]
     fn parse_kernel_install_rejects_other_options() {
-        let err = parse_cli([
-            OsString::from("sbrun"),
-            OsString::from("--kernel-install"),
-            OsString::from("--no-config"),
-        ])
-        .err()
-        .unwrap();
-        assert!(
-            err.to_string()
-                .contains("--kernel-install cannot be combined")
-        );
+        let err = parse_cli([OsString::from("sbrun"), OsString::from("--kernel-install"), OsString::from("--no-config")]).err().unwrap();
+        assert!(err.to_string().contains("--kernel-install cannot be combined"));
     }
 
     #[test]
@@ -470,68 +390,40 @@ mod tests {
 
     #[test]
     fn parse_prompt_init_with_shell() {
-        let parsed =
-            parse_cli([OsString::from("sbrun"), OsString::from("--prompt-init=zsh")]).unwrap();
-        let CliCommand::PromptInit(Some(shell)) = parsed else {
-            panic!("expected prompt-init command")
-        };
+        let parsed = parse_cli([OsString::from("sbrun"), OsString::from("--prompt-init=zsh")]).unwrap();
+        let CliCommand::PromptInit(Some(shell)) = parsed else { panic!("expected prompt-init command") };
         assert_eq!(shell, "zsh");
     }
 
     #[test]
     fn parse_prompt_init_rejects_other_options() {
-        let err = parse_cli([
-            OsString::from("sbrun"),
-            OsString::from("--prompt-init"),
-            OsString::from("--no-config"),
-        ])
-        .err()
-        .unwrap();
+        let err = parse_cli([OsString::from("sbrun"), OsString::from("--prompt-init"), OsString::from("--no-config")]).err().unwrap();
         assert!(err.to_string().contains("--prompt-init cannot be combined"));
     }
 
     #[test]
     fn parse_unknown_long_option_errors() {
-        let err = parse_cli([OsString::from("sbrun"), OsString::from("--bogus")])
-            .err()
-            .unwrap();
+        let err = parse_cli([OsString::from("sbrun"), OsString::from("--bogus")]).err().unwrap();
         assert!(err.to_string().contains("unknown option --bogus"));
     }
 
     #[test]
     fn parse_combined_short_options_error() {
-        let err = parse_cli([
-            OsString::from("sbrun"),
-            OsString::from("-wc"),
-            OsString::from("/tmp"),
-        ])
-        .err()
-        .unwrap();
+        let err = parse_cli([OsString::from("sbrun"), OsString::from("-wc"), OsString::from("/tmp")]).err().unwrap();
         assert!(err.to_string().contains("unknown option"));
     }
 
     #[test]
     fn parse_dash_command_after_separator() {
-        let parsed = parse_cli([
-            OsString::from("sbrun"),
-            OsString::from("--"),
-            OsString::from("--bogus"),
-        ])
-        .unwrap();
-        let CliCommand::Run { target, .. } = parsed else {
-            panic!()
-        };
-        let RunTarget::Exec(argv) = target else {
-            panic!()
-        };
+        let parsed = parse_cli([OsString::from("sbrun"), OsString::from("--"), OsString::from("--bogus")]).unwrap();
+        let CliCommand::Run { target, .. } = parsed else { panic!() };
+        let RunTarget::Exec(argv) = target else { panic!() };
         assert_eq!(argv, vec![OsString::from("--bogus")]);
     }
 
     #[test]
     fn parse_valueless_flag_rejects_value() {
-        let err = parse_cli([OsString::from("sbrun"), OsString::from("--no-config=x")])
-            .err()
-            .unwrap();
+        let err = parse_cli([OsString::from("sbrun"), OsString::from("--no-config=x")]).err().unwrap();
         assert!(err.to_string().contains("does not take a value"));
     }
 
@@ -563,10 +455,7 @@ mod tests {
 
     #[test]
     fn env_map_set_and_remove() {
-        let mut env = vec![
-            (OsString::from("A"), OsString::from("1")),
-            (OsString::from("B"), OsString::from("2")),
-        ];
+        let mut env = vec![(OsString::from("A"), OsString::from("1")), (OsString::from("B"), OsString::from("2"))];
         set_env(&mut env, "A", OsStr::new("99"));
         assert_eq!(env.iter().filter(|(k, _)| k == "A").count(), 1);
         assert_eq!(env.iter().find(|(k, _)| k == "A").unwrap().1, "99");

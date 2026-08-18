@@ -23,15 +23,7 @@ pub fn current() -> Result<Host> {
     let mut result = std::ptr::null_mut();
 
     loop {
-        let err = unsafe {
-            libc::getpwuid_r(
-                uid,
-                pwd.as_mut_ptr(),
-                buf.as_mut_ptr().cast(),
-                buf.len(),
-                &mut result,
-            )
-        };
+        let err = unsafe { libc::getpwuid_r(uid, pwd.as_mut_ptr(), buf.as_mut_ptr().cast(), buf.len(), &mut result) };
         if err == 0 {
             break;
         }
@@ -46,11 +38,7 @@ pub fn current() -> Result<Host> {
         (None, None, None)
     } else {
         let pwd = unsafe { pwd.assume_init() };
-        (
-            c_path(pwd.pw_dir),
-            c_path(pwd.pw_shell),
-            c_os_string(pwd.pw_name),
-        )
+        (c_path(pwd.pw_dir), c_path(pwd.pw_shell), c_os_string(pwd.pw_name))
     };
 
     let shell = pick_shell(env::var_os("SHELL").map(PathBuf::from), passwd_shell)?;
@@ -70,10 +58,7 @@ pub fn shell_is_bash(shell: &Path) -> bool {
 }
 
 pub fn login_arg0(shell: &Path) -> OsString {
-    let name = shell
-        .file_name()
-        .unwrap_or_else(|| OsStr::new("sh"))
-        .as_bytes();
+    let name = shell.file_name().unwrap_or_else(|| OsStr::new("sh")).as_bytes();
     let mut bytes = Vec::with_capacity(name.len() + 1);
     bytes.push(b'-');
     bytes.extend_from_slice(name);
@@ -95,10 +80,7 @@ pub fn close_extra_fds() {
     if unsafe { libc::syscall(libc::SYS_close_range, 3, libc::c_uint::MAX, 0) } == 0 {
         return;
     }
-    let mut limit = libc::rlimit {
-        rlim_cur: 0,
-        rlim_max: 0,
-    };
+    let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
     if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) } != 0 {
         return;
     }
@@ -111,23 +93,12 @@ pub fn close_extra_fds() {
 }
 
 fn pick_shell(env_shell: Option<PathBuf>, passwd_shell: Option<PathBuf>) -> Result<PathBuf> {
-    for candidate in [
-        env_shell,
-        passwd_shell,
-        Some(PathBuf::from("/bin/bash")),
-        Some(PathBuf::from("/bin/sh")),
-    ]
-    .into_iter()
-    .flatten()
-    {
+    for candidate in [env_shell, passwd_shell, Some(PathBuf::from("/bin/bash")), Some(PathBuf::from("/bin/sh"))].into_iter().flatten() {
         if candidate.is_absolute() && is_executable(&candidate)? {
             return Ok(candidate);
         }
     }
-    Err(Error::Usage(
-        "could not find an executable shell from $SHELL, passwd entry, /bin/bash, or /bin/sh"
-            .into(),
-    ))
+    Err(Error::Usage("could not find an executable shell from $SHELL, passwd entry, /bin/bash, or /bin/sh".into()))
 }
 
 fn is_executable(path: &Path) -> Result<bool> {
@@ -186,10 +157,7 @@ mod tests {
     #[test]
     fn login_arg0_prefix() {
         assert_eq!(login_arg0(Path::new("/bin/bash")), OsString::from("-bash"));
-        assert_eq!(
-            login_arg0(Path::new("/usr/bin/zsh")),
-            OsString::from("-zsh")
-        );
+        assert_eq!(login_arg0(Path::new("/usr/bin/zsh")), OsString::from("-zsh"));
     }
 
     #[test]

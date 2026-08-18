@@ -2,12 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::error::{Error, Result};
 
-pub fn build(
-    _workdir: &Path,
-    dirs: &[PathBuf],
-    files: &[PathBuf],
-    histfile: Option<&Path>,
-) -> Result<String> {
+pub fn build(_workdir: &Path, dirs: &[PathBuf], files: &[PathBuf], histfile: Option<&Path>) -> Result<String> {
     let mut out = String::from(concat!(
         "(version 1)\n",
         "(deny default)\n",
@@ -55,10 +50,7 @@ pub fn build(
 
 fn escape(path: &Path) -> Result<String> {
     let Some(text) = path.to_str() else {
-        return Err(Error::Usage(format!(
-            "sandbox path is not valid UTF-8: {}",
-            path.display()
-        )));
+        return Err(Error::Usage(format!("sandbox path is not valid UTF-8: {}", path.display())));
     };
     if text.contains('\n') || text.contains('\r') {
         return Err(Error::PathContainsNewline(text.to_owned()));

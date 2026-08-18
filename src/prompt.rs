@@ -33,17 +33,12 @@ fn parse_shell(value: &str) -> Result<PromptShell> {
     match value.rsplit('/').next().unwrap_or(value) {
         "bash" => Ok(PromptShell::Bash),
         "zsh" => Ok(PromptShell::Zsh),
-        _ => Err(Error::Usage(
-            "--prompt-init only supports bash and zsh".into(),
-        )),
+        _ => Err(Error::Usage("--prompt-init only supports bash and zsh".into())),
     }
 }
 
 fn prompt_init_shell_error() -> Error {
-    Error::Usage(
-        "could not infer shell for --prompt-init; use --prompt-init=bash or --prompt-init=zsh"
-            .into(),
-    )
+    Error::Usage("could not infer shell for --prompt-init; use --prompt-init=bash or --prompt-init=zsh".into())
 }
 
 fn bash_script() -> String {

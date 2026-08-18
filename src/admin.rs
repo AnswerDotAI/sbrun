@@ -6,21 +6,16 @@ use crate::error::{Error, Result};
 #[cfg(target_os = "linux")]
 const SYSCTL_CONFIG_PATH: &str = "/etc/sysctl.d/90-sbrun.conf";
 #[cfg(target_os = "linux")]
-const SYSCTL_CONFIG: &str =
-    "kernel.unprivileged_userns_clone=1\nkernel.apparmor_restrict_unprivileged_userns=0\n";
+const SYSCTL_CONFIG: &str = "kernel.unprivileged_userns_clone=1\nkernel.apparmor_restrict_unprivileged_userns=0\n";
 
 pub fn kernel_install() -> Result<()> {
     #[cfg(target_os = "linux")]
     {
         ensure_kernel_install_allowed()?;
         let config_path = Path::new(SYSCTL_CONFIG_PATH);
-        fs::write(config_path, SYSCTL_CONFIG)
-            .map_err(|err| Error::io_path("write", config_path, err))?;
+        fs::write(config_path, SYSCTL_CONFIG).map_err(|err| Error::io_path("write", config_path, err))?;
 
-        let status = Command::new(sysctl_program())
-            .arg("--system")
-            .status()
-            .map_err(|err| Error::io("run sysctl --system", err))?;
+        let status = Command::new(sysctl_program()).arg("--system").status().map_err(|err| Error::io("run sysctl --system", err))?;
         if !status.success() {
             return Err(Error::Usage(format!("sysctl --system failed: {status}")));
         }
@@ -28,18 +23,14 @@ pub fn kernel_install() -> Result<()> {
     }
     #[cfg(not(target_os = "linux"))]
     {
-        Err(Error::Usage(
-            "--kernel-install is only available on Linux".into(),
-        ))
+        Err(Error::Usage("--kernel-install is only available on Linux".into()))
     }
 }
 
 #[cfg(target_os = "linux")]
 fn ensure_kernel_install_allowed() -> Result<()> {
     if unsafe { libc::getuid() } != 0 || unsafe { libc::geteuid() } != 0 {
-        return Err(Error::Usage(
-            "--kernel-install requires running as root (for example via sudo)".into(),
-        ));
+        return Err(Error::Usage("--kernel-install requires running as root (for example via sudo)".into()));
     }
     Ok(())
 }
@@ -63,10 +54,7 @@ mod tests {
             return;
         }
         let err = ensure_kernel_install_allowed().unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("--kernel-install requires running as root")
-        );
+        assert!(err.to_string().contains("--kernel-install requires running as root"));
     }
 
     #[cfg(target_os = "linux")]

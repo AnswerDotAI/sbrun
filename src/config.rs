@@ -54,22 +54,14 @@ pub fn load(mode: &ConfigMode, home: Option<&Path>) -> Result<WriteConfig> {
     for path in &paths {
         let raw = match fs::read_to_string(path) {
             Ok(raw) => raw,
-            Err(err)
-                if err.kind() == std::io::ErrorKind::NotFound
-                    && !matches!(mode, ConfigMode::Explicit(_)) =>
-            {
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound && !matches!(mode, ConfigMode::Explicit(_)) => {
                 continue;
             }
             Err(err) => return Err(Error::io_path("read config file", path, err)),
         };
-        let parsed: RawConfig = toml::from_str(&raw).map_err(|err| Error::ConfigParse {
-            path: path.display().to_string(),
-            source: err,
-        })?;
+        let parsed: RawConfig = toml::from_str(&raw).map_err(|err| Error::ConfigParse { path: path.display().to_string(), source: err })?;
         if parsed.version.unwrap_or(1) != 1 {
-            return Err(Error::UnsupportedConfigVersion {
-                path: path.display().to_string(),
-            });
+            return Err(Error::UnsupportedConfigVersion { path: path.display().to_string() });
         }
         validate_config_paths(path, &parsed.write)?;
         validate_config_paths(path, &parsed.optional_write)?;
@@ -123,10 +115,7 @@ fn validate_config_paths(config_path: &Path, entries: &[PathBuf]) -> Result<()> 
         if entry.is_absolute() || starts_with_tilde(entry) {
             continue;
         }
-        return Err(Error::RelativeConfigPath {
-            path: config_path.display().to_string(),
-            entry: entry.display().to_string(),
-        });
+        return Err(Error::RelativeConfigPath { path: config_path.display().to_string(), entry: entry.display().to_string() });
     }
     Ok(())
 }
@@ -149,13 +138,7 @@ mod tests {
 
     #[test]
     fn load_explicit_missing_errors() {
-        assert!(
-            load(
-                &ConfigMode::Explicit(PathBuf::from("/nonexistent/config.toml")),
-                None
-            )
-            .is_err()
-        );
+        assert!(load(&ConfigMode::Explicit(PathBuf::from("/nonexistent/config.toml")), None).is_err());
     }
 
     #[test]
@@ -164,11 +147,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let cfg_path = dir.join("config.toml");
-        fs::write(
-            &cfg_path,
-            "version = 1\nwrite = [\"/tmp\"]\noptional_write = [\"/nonexistent\"]\n",
-        )
-        .unwrap();
+        fs::write(&cfg_path, "version = 1\nwrite = [\"/tmp\"]\noptional_write = [\"/nonexistent\"]\n").unwrap();
         let cfg = load(&ConfigMode::Explicit(cfg_path), None).unwrap();
         assert_eq!(cfg.required, vec![PathBuf::from("/tmp")]);
         assert_eq!(cfg.optional, vec![PathBuf::from("/nonexistent")]);
