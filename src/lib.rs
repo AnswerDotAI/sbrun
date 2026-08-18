@@ -167,7 +167,12 @@ fn ensure_file(path: &Path) -> bool {
 }
 
 fn build_child_env(
-    host: &host::Host, workdir: &Path, histfile: Option<&Path>, envdir_root: Option<&Path>, env_dir: &[String], unset_env: &[String],
+    host: &host::Host,
+    workdir: &Path,
+    histfile: Option<&Path>,
+    envdir_root: Option<&Path>,
+    env_dir: &[String],
+    unset_env: &[String],
 ) -> Vec<(OsString, OsString)> {
     let mut env_map: Vec<(OsString, OsString)> = env::vars_os().collect();
     remove_env(&mut env_map, "BASH_ENV");
@@ -308,16 +313,12 @@ pub fn cli_main() {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        CliCommand, ConfigMode, RunTarget, dedup, dedup_validate_env_names, parse_cli, remove_env, reserved_unset_env, set_env,
-        valid_env_name,
-    };
+    use crate::{CliCommand, ConfigMode, RunTarget, dedup, dedup_validate_env_names, parse_cli, remove_env, reserved_unset_env, set_env, valid_env_name};
     use std::ffi::{OsStr, OsString};
 
     #[test]
     fn parse_direct_command() {
-        let parsed =
-            parse_cli([OsString::from("sbrun"), OsString::from("python3"), OsString::from("-c"), OsString::from("print(1)")]).unwrap();
+        let parsed = parse_cli([OsString::from("sbrun"), OsString::from("python3"), OsString::from("-c"), OsString::from("print(1)")]).unwrap();
         let CliCommand::Run { target, options } = parsed else { panic!("expected run command") };
         assert!(matches!(options.config, ConfigMode::Default));
         let RunTarget::Exec(argv) = target else { panic!("expected direct command") };
@@ -352,8 +353,7 @@ mod tests {
 
     #[test]
     fn parse_no_config() {
-        let parsed =
-            parse_cli([OsString::from("sbrun"), OsString::from("--no-config"), OsString::from("echo"), OsString::from("hi")]).unwrap();
+        let parsed = parse_cli([OsString::from("sbrun"), OsString::from("--no-config"), OsString::from("echo"), OsString::from("hi")]).unwrap();
         let CliCommand::Run { options, .. } = parsed else { panic!() };
         assert!(matches!(options.config, ConfigMode::None));
     }

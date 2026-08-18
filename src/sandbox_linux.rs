@@ -71,10 +71,7 @@ fn apply_privileged(workdir: &Path, write_dirs: &[PathBuf], write_files: &[PathB
 }
 
 fn setup_mounts(workdir: &Path, write_dirs: &[PathBuf], write_files: &[PathBuf], histfile: Option<&Path>) -> Result<()> {
-    check(
-        unsafe { libc::mount(ptr::null(), c("/")?.as_ptr(), ptr::null(), libc::MS_PRIVATE | libc::MS_REC, ptr::null()) },
-        "make-private",
-    )?;
+    check(unsafe { libc::mount(ptr::null(), c("/")?.as_ptr(), ptr::null(), libc::MS_PRIVATE | libc::MS_REC, ptr::null()) }, "make-private")?;
 
     bind(Path::new("/"), Path::new("/"), true)?;
     // A private tmpfs keeps TMPDIR=/tmp usable when /tmp is otherwise
@@ -97,15 +94,8 @@ fn setup_mounts(workdir: &Path, write_dirs: &[PathBuf], write_files: &[PathBuf],
     }
 
     // Try to remount /proc for the new namespace (non-fatal)
-    let _ = unsafe {
-        libc::mount(
-            c("proc")?.as_ptr(),
-            c("/proc")?.as_ptr(),
-            c("proc")?.as_ptr(),
-            libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC,
-            ptr::null(),
-        )
-    };
+    let _ =
+        unsafe { libc::mount(c("proc")?.as_ptr(), c("/proc")?.as_ptr(), c("proc")?.as_ptr(), libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC, ptr::null()) };
 
     Ok(())
 }
@@ -158,16 +148,7 @@ struct MountAttr {
 fn mount_setattr_ro_rec(path: &Path) -> Result<()> {
     let p = c_path(path)?;
     let attr = MountAttr { attr_set: MOUNT_ATTR_RDONLY | MOUNT_ATTR_NOSUID, attr_clr: 0, propagation: 0, userns_fd: 0 };
-    let rc = unsafe {
-        libc::syscall(
-            libc::SYS_mount_setattr,
-            libc::AT_FDCWD,
-            p.as_ptr(),
-            AT_RECURSIVE,
-            &attr as *const _,
-            std::mem::size_of::<MountAttr>(),
-        )
-    };
+    let rc = unsafe { libc::syscall(libc::SYS_mount_setattr, libc::AT_FDCWD, p.as_ptr(), AT_RECURSIVE, &attr as *const _, std::mem::size_of::<MountAttr>()) };
     if rc != 0 {
         return Err(Error::Sandbox(format!("mount_setattr {}: {}", path.display(), std::io::Error::last_os_error())));
     }
@@ -193,15 +174,7 @@ fn bind(src: &Path, dest: &Path, readonly: bool) -> Result<()> {
 fn tmpfs(dest: &Path) -> Result<()> {
     let d = c_path(dest)?;
     check(
-        unsafe {
-            libc::mount(
-                c("tmpfs")?.as_ptr(),
-                d.as_ptr(),
-                c("tmpfs")?.as_ptr(),
-                libc::MS_NOSUID | libc::MS_NODEV,
-                c("size=256M")?.as_ptr().cast(),
-            )
-        },
+        unsafe { libc::mount(c("tmpfs")?.as_ptr(), d.as_ptr(), c("tmpfs")?.as_ptr(), libc::MS_NOSUID | libc::MS_NODEV, c("size=256M")?.as_ptr().cast()) },
         "tmpfs",
     )
 }

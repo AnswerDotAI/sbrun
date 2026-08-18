@@ -86,9 +86,7 @@ pub fn refuse_redirected_regular_stdio(workdir: &Path, allowed: &AllowedWrites) 
         let final_path = match fd_path(fd) {
             Some(path) => path,
             None => {
-                return Err(Error::Usage(format!(
-                    "fd {fd} is redirected to a regular file outside the sandbox check path; refusing to start"
-                )));
+                return Err(Error::Usage(format!("fd {fd} is redirected to a regular file outside the sandbox check path; refusing to start")));
             }
         };
         if !path_is_allowed(&final_path, workdir, allowed) {
@@ -133,11 +131,7 @@ fn resolve_write_path(path: &Path, home: Option<&Path>, optional: bool) -> Resul
     if optional {
         return Ok(None);
     }
-    Err(Error::Usage(format!(
-        "writable path {} resolves to {}, which is not a regular file or directory",
-        path.display(),
-        resolved.display()
-    )))
+    Err(Error::Usage(format!("writable path {} resolves to {}, which is not a regular file or directory", path.display(), resolved.display())))
 }
 
 fn push_unique(allowed: &mut AllowedWrites, target: ResolvedTarget) {
@@ -171,10 +165,7 @@ fn fd_path(fd: i32) -> Option<PathBuf> {
         return None;
     }
     let raw_path = unsafe { std::ffi::CStr::from_ptr(raw.as_ptr()) }.to_bytes().to_vec();
-    Some(
-        fs::canonicalize(PathBuf::from(OsString::from_vec(raw_path.clone())))
-            .unwrap_or_else(|_| PathBuf::from(OsString::from_vec(raw_path))),
-    )
+    Some(fs::canonicalize(PathBuf::from(OsString::from_vec(raw_path.clone()))).unwrap_or_else(|_| PathBuf::from(OsString::from_vec(raw_path))))
 }
 
 #[cfg(target_os = "linux")]
