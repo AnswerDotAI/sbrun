@@ -23,6 +23,7 @@ toml = ">=0.9"
 lto = "thin"
 codegen-units = 1
 panic = "abort"
+strip = true
 
 [lints.clippy]
 too_many_arguments = "allow"
