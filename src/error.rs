@@ -19,21 +19,13 @@ pub enum Error {
     #[error("unsupported home expansion in path {0}")]
     UnsupportedHomeExpansion(String),
     #[error("config file {path}: {source}")]
-    ConfigParse {
-        path: String,
-        #[source]
-        source: toml::de::Error,
-    },
+    ConfigParse { path: String, #[source] source: toml::de::Error },
     #[error("config file {path}: version must be 1")]
     UnsupportedConfigVersion { path: String },
     #[error("config file {path}: write entry {entry} must be absolute or start with ~/")]
     RelativeConfigPath { path: String, entry: String },
     #[error("{action}: {source}")]
-    Io {
-        action: &'static str,
-        #[source]
-        source: io::Error,
-    },
+    Io { action: &'static str, #[source] source: io::Error },
     #[error("{action} {path}: {source}")]
     IoPath {
         action: &'static str,
@@ -48,11 +40,7 @@ pub enum Error {
 }
 
 impl Error {
-    pub fn io(action: &'static str, source: io::Error) -> Self {
-        Self::Io { action, source }
-    }
+    pub fn io(action: &'static str, source: io::Error) -> Self { Self::Io { action, source } }
 
-    pub fn io_path(action: &'static str, path: &Path, source: io::Error) -> Self {
-        Self::IoPath { action, path: path.display().to_string(), source }
-    }
+    pub fn io_path(action: &'static str, path: &Path, source: io::Error) -> Self { Self::IoPath { action, path: path.display().to_string(), source } }
 }

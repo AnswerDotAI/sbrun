@@ -10,11 +10,7 @@ use std::{
 use crate::error::{Error, Result};
 
 #[derive(Debug, Clone)]
-pub struct Host {
-    pub home: Option<PathBuf>,
-    pub shell: PathBuf,
-    pub user: Option<OsString>,
-}
+pub struct Host { pub home: Option<PathBuf>, pub shell: PathBuf, pub user: Option<OsString> }
 
 pub fn current() -> Result<Host> {
     let uid = unsafe { libc::getuid() };
@@ -24,9 +20,7 @@ pub fn current() -> Result<Host> {
 
     loop {
         let err = unsafe { libc::getpwuid_r(uid, pwd.as_mut_ptr(), buf.as_mut_ptr().cast(), buf.len(), &mut result) };
-        if err == 0 {
-            break;
-        }
+        if err == 0 { break; }
         if err == libc::ERANGE {
             buf.resize(buf.len() * 2, 0);
             continue;
@@ -34,9 +28,7 @@ pub fn current() -> Result<Host> {
         return Err(Error::io("getpwuid_r", io::Error::from_raw_os_error(err)));
     }
 
-    let (home, passwd_shell, user) = if result.is_null() {
-        (None, None, None)
-    } else {
+    let (home, passwd_shell, user) = if result.is_null() { (None, None, None) } else {
         let pwd = unsafe { pwd.assume_init() };
         (c_path(pwd.pw_dir), c_path(pwd.pw_shell), c_os_string(pwd.pw_name))
     };
@@ -46,16 +38,10 @@ pub fn current() -> Result<Host> {
 }
 
 pub fn history_file_name(shell: &Path) -> &'static str {
-    match shell.file_name().and_then(OsStr::to_str) {
-        Some("bash") => ".bash_history",
-        Some("zsh") => ".zsh_history",
-        _ => ".sh_history",
-    }
+    match shell.file_name().and_then(OsStr::to_str) { Some("bash") => ".bash_history", Some("zsh") => ".zsh_history", _ => ".sh_history" }
 }
 
-pub fn shell_is_bash(shell: &Path) -> bool {
-    shell.file_name().and_then(OsStr::to_str) == Some("bash")
-}
+pub fn shell_is_bash(shell: &Path) -> bool { shell.file_name().and_then(OsStr::to_str) == Some("bash") }
 
 pub fn login_arg0(shell: &Path) -> OsString {
     let name = shell.file_name().unwrap_or_else(|| OsStr::new("sh")).as_bytes();
@@ -67,36 +53,22 @@ pub fn login_arg0(shell: &Path) -> OsString {
 
 #[cfg(target_os = "macos")]
 pub fn tty_path() -> PathBuf {
-    for fd in [libc::STDIN_FILENO, libc::STDOUT_FILENO, libc::STDERR_FILENO] {
-        if let Some(path) = tty_path_for_fd(fd) {
-            return path;
-        }
-    }
+    for fd in [libc::STDIN_FILENO, libc::STDOUT_FILENO, libc::STDERR_FILENO] { if let Some(path) = tty_path_for_fd(fd) { return path; } }
     PathBuf::from("/dev/tty")
 }
 
 pub fn close_extra_fds() {
     #[cfg(target_os = "linux")]
-    if unsafe { libc::syscall(libc::SYS_close_range, 3, libc::c_uint::MAX, 0) } == 0 {
-        return;
-    }
+    if unsafe { libc::syscall(libc::SYS_close_range, 3, libc::c_uint::MAX, 0) } == 0 { return; }
     let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
-    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) } != 0 {
-        return;
-    }
+    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) } != 0 { return; }
     let maxfd = limit.rlim_cur.min(65_536);
-    for fd in 3..maxfd as i32 {
-        unsafe {
-            libc::close(fd);
-        }
-    }
+    for fd in 3..maxfd as i32 { unsafe { libc::close(fd); } }
 }
 
 fn pick_shell(env_shell: Option<PathBuf>, passwd_shell: Option<PathBuf>) -> Result<PathBuf> {
     for candidate in [env_shell, passwd_shell, Some(PathBuf::from("/bin/bash")), Some(PathBuf::from("/bin/sh"))].into_iter().flatten() {
-        if candidate.is_absolute() && is_executable(&candidate)? {
-            return Ok(candidate);
-        }
+        if candidate.is_absolute() && is_executable(&candidate)? { return Ok(candidate); }
     }
     Err(Error::Usage("could not find an executable shell from $SHELL, passwd entry, /bin/bash, or /bin/sh".into()))
 }
@@ -109,21 +81,15 @@ fn is_executable(path: &Path) -> Result<bool> {
 #[cfg(target_os = "macos")]
 fn tty_path_for_fd(fd: i32) -> Option<PathBuf> {
     let mut buf = vec![0 as libc::c_char; 1024];
-    if unsafe { libc::ttyname_r(fd, buf.as_mut_ptr(), buf.len()) } != 0 || buf[0] == 0 {
-        return None;
-    }
+    if unsafe { libc::ttyname_r(fd, buf.as_mut_ptr(), buf.len()) } != 0 || buf[0] == 0 { return None; }
     let bytes = unsafe { CStr::from_ptr(buf.as_ptr()) }.to_bytes().to_vec();
     Some(PathBuf::from(OsString::from_vec(bytes)))
 }
 
-fn c_path(ptr: *const libc::c_char) -> Option<PathBuf> {
-    c_os_string(ptr).map(PathBuf::from)
-}
+fn c_path(ptr: *const libc::c_char) -> Option<PathBuf> { c_os_string(ptr).map(PathBuf::from) }
 
 fn c_os_string(ptr: *const libc::c_char) -> Option<OsString> {
-    if ptr.is_null() {
-        return None;
-    }
+    if ptr.is_null() { return None; }
     let bytes = unsafe { CStr::from_ptr(ptr) }.to_bytes().to_vec();
     Some(OsString::from_vec(bytes))
 }
@@ -134,19 +100,13 @@ mod tests {
     use std::path::Path;
 
     #[test]
-    fn history_bash() {
-        assert_eq!(history_file_name(Path::new("/bin/bash")), ".bash_history");
-    }
+    fn history_bash() { assert_eq!(history_file_name(Path::new("/bin/bash")), ".bash_history"); }
 
     #[test]
-    fn history_zsh() {
-        assert_eq!(history_file_name(Path::new("/bin/zsh")), ".zsh_history");
-    }
+    fn history_zsh() { assert_eq!(history_file_name(Path::new("/bin/zsh")), ".zsh_history"); }
 
     #[test]
-    fn history_other() {
-        assert_eq!(history_file_name(Path::new("/bin/fish")), ".sh_history");
-    }
+    fn history_other() { assert_eq!(history_file_name(Path::new("/bin/fish")), ".sh_history"); }
 
     #[test]
     fn bash_detection() {

@@ -36,10 +36,7 @@ pub fn cli_main_with_args<I: IntoIterator<Item = OsString>>(args: I) {
             println!("sbrun {}", env!("CARGO_PKG_VERSION"));
             return;
         }
-        Ok(CliCommand::KernelInstall) => match admin::kernel_install() {
-            Ok(()) => return,
-            Err(err) => err,
-        },
+        Ok(CliCommand::KernelInstall) => match admin::kernel_install() { Ok(()) => return, Err(err) => err },
         Ok(CliCommand::PromptInit(shell)) => match prompt::init_script(shell.as_deref()) {
             Ok(script) => {
                 print!("{script}");
@@ -61,11 +58,7 @@ pub fn cli_main_with_args<I: IntoIterator<Item = OsString>>(args: I) {
 
 fn exit_code(err: &Error) -> i32 {
     match err {
-        Error::Io { action: "exec", source } => match source.raw_os_error() {
-            Some(libc::ENOENT) => 127,
-            Some(libc::EACCES | libc::ENOEXEC) => 126,
-            _ => 111,
-        },
+        Error::Io { action: "exec", source } => match source.raw_os_error() { Some(libc::ENOENT) => 127, Some(libc::EACCES | libc::ENOEXEC) => 126, _ => 111 },
         _ => 111,
     }
 }
@@ -79,11 +72,7 @@ pub struct Options {
 }
 
 #[derive(Debug, Clone)]
-pub enum RunTarget {
-    InteractiveShell,
-    ShellCommand(String),
-    Exec(Vec<OsString>),
-}
+pub enum RunTarget { InteractiveShell, ShellCommand(String), Exec(Vec<OsString>) }
 
 pub fn run(target: RunTarget, mut options: Options) -> Result<Infallible> {
     #[cfg(target_os = "linux")]
@@ -110,9 +99,7 @@ pub fn run(target: RunTarget, mut options: Options) -> Result<Infallible> {
     host::close_extra_fds();
 
     #[cfg(target_os = "linux")]
-    if let Some(guard) = privilege_guard {
-        guard.restore_root()?;
-    }
+    if let Some(guard) = privilege_guard { guard.restore_root()?; }
 
     #[cfg(target_os = "macos")]
     {
@@ -130,31 +117,19 @@ fn dedup_validate_env_names(env_dir: &mut Vec<String>, unset_env: &mut Vec<Strin
     dedup(env_dir);
     dedup(unset_env);
 
-    for name in env_dir.iter().chain(unset_env.iter()) {
-        if !valid_env_name(name) {
-            return Err(Error::InvalidEnvName(name.clone()));
-        }
-    }
+    for name in env_dir.iter().chain(unset_env.iter()) { if !valid_env_name(name) { return Err(Error::InvalidEnvName(name.clone())); } }
     for name in unset_env.iter() {
-        if reserved_unset_env(name) {
-            return Err(Error::ReservedUnsetEnv(name.clone()));
-        }
-        if env_dir.contains(name) {
-            return Err(Error::ConflictingEnv(name.clone()));
-        }
+        if reserved_unset_env(name) { return Err(Error::ReservedUnsetEnv(name.clone())); }
+        if env_dir.contains(name) { return Err(Error::ConflictingEnv(name.clone())); }
     }
     Ok(())
 }
 
 fn prepare_env_dirs(workdir: &Path, env_dir: &[String]) -> Result<Option<PathBuf>> {
-    if env_dir.is_empty() {
-        return Ok(None);
-    }
+    if env_dir.is_empty() { return Ok(None); }
     let root = workdir.join(".sbrun");
     pathutil::ensure_real_directory(&root)?;
-    for name in env_dir {
-        pathutil::ensure_real_directory(&root.join(name))?;
-    }
+    for name in env_dir { pathutil::ensure_real_directory(&root.join(name))?; }
     Ok(Some(root))
 }
 
@@ -188,53 +163,31 @@ fn build_child_env(
     #[cfg(target_os = "linux")]
     remove_env(&mut env_map, "LD_PRELOAD");
 
-    for name in unset_env {
-        remove_env(&mut env_map, name);
-    }
+    for name in unset_env { remove_env(&mut env_map, name); }
 
     let path = env::var_os("PATH").unwrap_or_else(|| {
-        if cfg!(target_os = "macos") {
-            OsString::from("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")
-        } else {
-            OsString::from("/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")
-        }
+        if cfg!(target_os = "macos") { OsString::from("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin") } else { OsString::from("/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin") }
     });
     set_env(&mut env_map, "PATH", &path);
     set_env(&mut env_map, "PWD", workdir.as_os_str());
-    if let Some(home) = &host.home {
-        set_env(&mut env_map, "HOME", home.as_os_str());
-    }
+    if let Some(home) = &host.home { set_env(&mut env_map, "HOME", home.as_os_str()); }
     set_env(&mut env_map, "TMPDIR", OsStr::new("/tmp"));
-    if let Some(histfile) = histfile {
-        set_env(&mut env_map, "HISTFILE", histfile.as_os_str());
-    } else {
-        remove_env(&mut env_map, "HISTFILE");
-    }
+    if let Some(histfile) = histfile { set_env(&mut env_map, "HISTFILE", histfile.as_os_str()); }
+    else { remove_env(&mut env_map, "HISTFILE"); }
     set_env(&mut env_map, "SHELL", host.shell.as_os_str());
     set_env(&mut env_map, "SBRUN_ACTIVE", OsStr::new("1"));
 
-    if host::shell_is_bash(&host.shell) {
-        set_env(&mut env_map, "BASH_SILENCE_DEPRECATION_WARNING", OsStr::new("1"));
-    } else {
-        remove_env(&mut env_map, "BASH_SILENCE_DEPRECATION_WARNING");
-    }
+    if host::shell_is_bash(&host.shell) { set_env(&mut env_map, "BASH_SILENCE_DEPRECATION_WARNING", OsStr::new("1")); }
+    else { remove_env(&mut env_map, "BASH_SILENCE_DEPRECATION_WARNING"); }
 
     if let Some(user) = &host.user {
         set_env(&mut env_map, "USER", user);
         set_env(&mut env_map, "LOGNAME", user);
     }
 
-    for key in ["TERM", "LANG", "LC_ALL", "LC_CTYPE"] {
-        if let Some(value) = env::var_os(key) {
-            set_env(&mut env_map, key, &value);
-        }
-    }
+    for key in ["TERM", "LANG", "LC_ALL", "LC_CTYPE"] { if let Some(value) = env::var_os(key) { set_env(&mut env_map, key, &value); } }
 
-    if let Some(root) = envdir_root {
-        for name in env_dir {
-            set_env(&mut env_map, name, root.join(name).as_os_str());
-        }
-    }
+    if let Some(root) = envdir_root { for name in env_dir { set_env(&mut env_map, name, root.join(name).as_os_str()); } }
 
     env_map
 }
@@ -253,9 +206,7 @@ fn build_command(target: RunTarget, shell: &Path, workdir: &Path, env_map: &[(Os
             command
         }
         RunTarget::Exec(argv) => {
-            if argv.is_empty() {
-                return Err(Error::Usage("direct command cannot be empty".into()));
-            }
+            if argv.is_empty() { return Err(Error::Usage("direct command cannot be empty".into())); }
             let mut command = Command::new(&argv[0]);
             command.args(&argv[1..]);
             command
@@ -298,18 +249,14 @@ fn reserved_unset_env(name: &str) -> bool {
     )
 }
 
-fn remove_env(env_map: &mut Vec<(OsString, OsString)>, key: &str) {
-    env_map.retain(|(existing, _)| existing != OsStr::new(key));
-}
+fn remove_env(env_map: &mut Vec<(OsString, OsString)>, key: &str) { env_map.retain(|(existing, _)| existing != OsStr::new(key)); }
 
 fn set_env(env_map: &mut Vec<(OsString, OsString)>, key: &str, value: &OsStr) {
     remove_env(env_map, key);
     env_map.push((OsString::from(key), value.to_os_string()));
 }
 
-pub fn cli_main() {
-    cli_main_with_args(env::args_os())
-}
+pub fn cli_main() { cli_main_with_args(env::args_os()) }
 
 #[cfg(test)]
 mod tests {

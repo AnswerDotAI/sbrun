@@ -26,10 +26,7 @@ pub enum ConfigMode {
 }
 
 #[derive(Debug, Default)]
-pub struct WriteConfig {
-    pub required: Vec<PathBuf>,
-    pub optional: Vec<PathBuf>,
-}
+pub struct WriteConfig { pub required: Vec<PathBuf>, pub optional: Vec<PathBuf> }
 
 #[derive(Debug, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
@@ -48,9 +45,7 @@ pub fn load(mode: &ConfigMode, home: Option<&Path>) -> Result<WriteConfig> {
     if matches!(mode, ConfigMode::Default)
         && !paths.iter().any(|p| p.exists())
         && let Some(path) = user_config_path(home)
-    {
-        ensure_default_config(&path);
-    }
+    { ensure_default_config(&path); }
     for path in &paths {
         let raw = match fs::read_to_string(path) {
             Ok(raw) => raw,
@@ -60,9 +55,7 @@ pub fn load(mode: &ConfigMode, home: Option<&Path>) -> Result<WriteConfig> {
             Err(err) => return Err(Error::io_path("read config file", path, err)),
         };
         let parsed: RawConfig = toml::from_str(&raw).map_err(|err| Error::ConfigParse { path: path.display().to_string(), source: err })?;
-        if parsed.version.unwrap_or(1) != 1 {
-            return Err(Error::UnsupportedConfigVersion { path: path.display().to_string() });
-        }
+        if parsed.version.unwrap_or(1) != 1 { return Err(Error::UnsupportedConfigVersion { path: path.display().to_string() }); }
         validate_config_paths(path, &parsed.write)?;
         validate_config_paths(path, &parsed.optional_write)?;
         config.required.extend(parsed.write);
@@ -81,12 +74,8 @@ fn config_paths(mode: &ConfigMode, home: Option<&Path>) -> Vec<PathBuf> {
                 .and_then(|value| value.into_string().ok())
                 .filter(|value| !value.is_empty())
                 .unwrap_or_else(|| DEFAULT_XDG_CONFIG_DIRS.to_string());
-            for root in roots.split(':').filter(|root| root.starts_with('/')) {
-                out.push(PathBuf::from(root).join("sbrun").join("config.toml"));
-            }
-            if let Some(path) = user_config_path(home) {
-                out.push(path);
-            }
+            for root in roots.split(':').filter(|root| root.starts_with('/')) { out.push(PathBuf::from(root).join("sbrun").join("config.toml")); }
+            if let Some(path) = user_config_path(home) { out.push(path); }
             out
         }
     }
@@ -95,34 +84,24 @@ fn config_paths(mode: &ConfigMode, home: Option<&Path>) -> Vec<PathBuf> {
 fn user_config_path(home: Option<&Path>) -> Option<PathBuf> {
     if let Some(root) = env::var_os("XDG_CONFIG_HOME")
         && Path::new(&root).is_absolute()
-    {
-        return Some(PathBuf::from(root).join("sbrun").join("config.toml"));
-    }
+    { return Some(PathBuf::from(root).join("sbrun").join("config.toml")); }
     home.map(|home| home.join(".config").join("sbrun").join("config.toml"))
 }
 
 fn ensure_default_config(path: &Path) {
-    if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-    if fs::write(path, DEFAULT_CONFIG).is_ok() {
-        eprintln!("sbrun: created default config at {}", path.display());
-    }
+    if let Some(parent) = path.parent() { let _ = fs::create_dir_all(parent); }
+    if fs::write(path, DEFAULT_CONFIG).is_ok() { eprintln!("sbrun: created default config at {}", path.display()); }
 }
 
 fn validate_config_paths(config_path: &Path, entries: &[PathBuf]) -> Result<()> {
     for entry in entries {
-        if entry.is_absolute() || starts_with_tilde(entry) {
-            continue;
-        }
+        if entry.is_absolute() || starts_with_tilde(entry) { continue; }
         return Err(Error::RelativeConfigPath { path: config_path.display().to_string(), entry: entry.display().to_string() });
     }
     Ok(())
 }
 
-fn starts_with_tilde(path: &Path) -> bool {
-    path.as_os_str().as_encoded_bytes().starts_with(b"~")
-}
+fn starts_with_tilde(path: &Path) -> bool { path.as_os_str().as_encoded_bytes().starts_with(b"~") }
 
 #[cfg(test)]
 mod tests {
@@ -137,9 +116,7 @@ mod tests {
     }
 
     #[test]
-    fn load_explicit_missing_errors() {
-        assert!(load(&ConfigMode::Explicit(PathBuf::from("/nonexistent/config.toml")), None).is_err());
-    }
+    fn load_explicit_missing_errors() { assert!(load(&ConfigMode::Explicit(PathBuf::from("/nonexistent/config.toml")), None).is_err()); }
 
     #[test]
     fn load_explicit_valid() {

@@ -29,19 +29,13 @@ pub fn build(_workdir: &Path, dirs: &[PathBuf], files: &[PathBuf], histfile: Opt
         "(allow file-write*\n",
         "    (subpath (param \"WORKDIR\"))\n",
     ));
-    for dir in dirs {
-        out.push_str(&format!("    (subpath \"{}\")\n", escape(dir)?));
-    }
+    for dir in dirs { out.push_str(&format!("    (subpath \"{}\")\n", escape(dir)?)); }
     out.push_str(")\n");
 
     if histfile.is_some() || !files.is_empty() {
         out.push_str("(allow file-write*\n");
-        if histfile.is_some() {
-            out.push_str("    (literal (param \"HISTFILE\"))\n");
-        }
-        for file in files {
-            out.push_str(&format!("    (literal \"{}\")\n", escape(file)?));
-        }
+        if histfile.is_some() { out.push_str("    (literal (param \"HISTFILE\"))\n"); }
+        for file in files { out.push_str(&format!("    (literal \"{}\")\n", escape(file)?)); }
         out.push_str(")\n");
     }
 
@@ -49,12 +43,8 @@ pub fn build(_workdir: &Path, dirs: &[PathBuf], files: &[PathBuf], histfile: Opt
 }
 
 fn escape(path: &Path) -> Result<String> {
-    let Some(text) = path.to_str() else {
-        return Err(Error::Usage(format!("sandbox path is not valid UTF-8: {}", path.display())));
-    };
-    if text.contains('\n') || text.contains('\r') {
-        return Err(Error::PathContainsNewline(text.to_owned()));
-    }
+    let Some(text) = path.to_str() else { return Err(Error::Usage(format!("sandbox path is not valid UTF-8: {}", path.display()))); };
+    if text.contains('\n') || text.contains('\r') { return Err(Error::PathContainsNewline(text.to_owned())); }
     Ok(text.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
@@ -71,7 +61,5 @@ mod tests {
     }
 
     #[test]
-    fn escape_quotes_and_backslashes() {
-        assert_eq!(escape(Path::new(r#"/a"b\c"#)).unwrap(), r#"/a\"b\\c"#);
-    }
+    fn escape_quotes_and_backslashes() { assert_eq!(escape(Path::new(r#"/a"b\c"#)).unwrap(), r#"/a\"b\\c"#); }
 }

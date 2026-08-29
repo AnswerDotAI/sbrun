@@ -5,26 +5,15 @@ use crate::error::{Error, Result};
 const LOCK_PREFIX: &str = "\u{1F512} ";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PromptShell {
-    Bash,
-    Zsh,
-}
+enum PromptShell { Bash, Zsh }
 
 pub fn init_script(shell: Option<&str>) -> Result<String> {
-    let shell = match shell {
-        Some(name) => parse_shell(name)?,
-        None => detect_shell()?,
-    };
-    Ok(match shell {
-        PromptShell::Bash => bash_script(),
-        PromptShell::Zsh => zsh_script(),
-    })
+    let shell = match shell { Some(name) => parse_shell(name)?, None => detect_shell()? };
+    Ok(match shell { PromptShell::Bash => bash_script(), PromptShell::Zsh => zsh_script() })
 }
 
 fn detect_shell() -> Result<PromptShell> {
-    let Some(shell) = env::var_os("SHELL") else {
-        return Err(prompt_init_shell_error());
-    };
+    let Some(shell) = env::var_os("SHELL") else { return Err(prompt_init_shell_error()); };
     let shell = shell.to_string_lossy();
     parse_shell(&shell).map_err(|_| prompt_init_shell_error())
 }
@@ -37,9 +26,7 @@ fn parse_shell(value: &str) -> Result<PromptShell> {
     }
 }
 
-fn prompt_init_shell_error() -> Error {
-    Error::Usage("could not infer shell for --prompt-init; use --prompt-init=bash or --prompt-init=zsh".into())
-}
+fn prompt_init_shell_error() -> Error { Error::Usage("could not infer shell for --prompt-init; use --prompt-init=bash or --prompt-init=zsh".into()) }
 
 fn bash_script() -> String {
     format!(

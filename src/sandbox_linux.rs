@@ -8,17 +8,12 @@ use std::{
 use crate::error::{Error, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PrivilegeMode {
-    Unprivileged,
-    Privileged,
-}
+enum PrivilegeMode { Unprivileged, Privileged }
 
 pub struct PreflightPrivilegeGuard;
 
 pub fn temporarily_drop_to_real_user() -> Result<Option<PreflightPrivilegeGuard>> {
-    if !needs_preflight_drop(current_ids()) {
-        return Ok(None);
-    }
+    if !needs_preflight_drop(current_ids()) { return Ok(None); }
     let uid = unsafe { libc::getuid() };
     check(unsafe { libc::seteuid(uid) }, "seteuid(real uid)")?;
     Ok(Some(PreflightPrivilegeGuard))
@@ -77,21 +72,13 @@ fn setup_mounts(workdir: &Path, write_dirs: &[PathBuf], write_files: &[PathBuf],
     // A private tmpfs keeps TMPDIR=/tmp usable when /tmp is otherwise
     // read-only, but would shadow any writable path under /tmp (including the
     // real /tmp when explicitly allowed), so skip it in that case.
-    if !tmp_overlaps_writes(workdir, write_dirs, write_files) {
-        tmpfs(Path::new("/tmp"))?;
-    }
+    if !tmp_overlaps_writes(workdir, write_dirs, write_files) { tmpfs(Path::new("/tmp"))?; }
 
-    for d in std::iter::once(workdir).chain(write_dirs.iter().map(|p| p.as_path())) {
-        bind(d, d, false)?;
-    }
-    for f in write_files {
-        bind(f, f, false)?;
-    }
+    for d in std::iter::once(workdir).chain(write_dirs.iter().map(|p| p.as_path())) { bind(d, d, false)?; }
+    for f in write_files { bind(f, f, false)?; }
     if let Some(histfile) = histfile
         && fs::symlink_metadata(histfile).is_ok()
-    {
-        bind(histfile, histfile, false)?;
-    }
+    { bind(histfile, histfile, false)?; }
 
     // Try to remount /proc for the new namespace (non-fatal)
     let _ =
@@ -115,23 +102,15 @@ fn permanently_drop_privileges() -> Result<()> {
     check(unsafe { libc::setresgid(gid, gid, gid) }, "setresgid")?;
     check(unsafe { libc::setresuid(uid, uid, uid) }, "setresuid")?;
 
-    if unsafe { libc::geteuid() } != uid || unsafe { libc::getegid() } != gid {
-        return Err(Error::Sandbox("failed to drop privileges permanently".into()));
-    }
+    if unsafe { libc::geteuid() } != uid || unsafe { libc::getegid() } != gid { return Err(Error::Sandbox("failed to drop privileges permanently".into())); }
     Ok(())
 }
 
-fn current_ids() -> (libc::uid_t, libc::uid_t) {
-    (unsafe { libc::getuid() }, unsafe { libc::geteuid() })
-}
+fn current_ids() -> (libc::uid_t, libc::uid_t) { (unsafe { libc::getuid() }, unsafe { libc::geteuid() }) }
 
-fn mode_from_ids((_, euid): (libc::uid_t, libc::uid_t)) -> PrivilegeMode {
-    if euid == 0 { PrivilegeMode::Privileged } else { PrivilegeMode::Unprivileged }
-}
+fn mode_from_ids((_, euid): (libc::uid_t, libc::uid_t)) -> PrivilegeMode { if euid == 0 { PrivilegeMode::Privileged } else { PrivilegeMode::Unprivileged } }
 
-fn needs_preflight_drop((uid, euid): (libc::uid_t, libc::uid_t)) -> bool {
-    mode_from_ids((uid, euid)) == PrivilegeMode::Privileged && uid != 0
-}
+fn needs_preflight_drop((uid, euid): (libc::uid_t, libc::uid_t)) -> bool { mode_from_ids((uid, euid)) == PrivilegeMode::Privileged && uid != 0 }
 
 const AT_RECURSIVE: libc::c_int = 0x8000;
 const MOUNT_ATTR_RDONLY: u64 = 0x1;
@@ -149,9 +128,7 @@ fn mount_setattr_ro_rec(path: &Path) -> Result<()> {
     let p = c_path(path)?;
     let attr = MountAttr { attr_set: MOUNT_ATTR_RDONLY | MOUNT_ATTR_NOSUID, attr_clr: 0, propagation: 0, userns_fd: 0 };
     let rc = unsafe { libc::syscall(libc::SYS_mount_setattr, libc::AT_FDCWD, p.as_ptr(), AT_RECURSIVE, &attr as *const _, std::mem::size_of::<MountAttr>()) };
-    if rc != 0 {
-        return Err(Error::Sandbox(format!("mount_setattr {}: {}", path.display(), std::io::Error::last_os_error())));
-    }
+    if rc != 0 { return Err(Error::Sandbox(format!("mount_setattr {}: {}", path.display(), std::io::Error::last_os_error()))); }
     Ok(())
 }
 
@@ -161,9 +138,7 @@ fn bind(src: &Path, dest: &Path, readonly: bool) -> Result<()> {
     if unsafe { libc::mount(s.as_ptr(), d.as_ptr(), ptr::null(), libc::MS_BIND | libc::MS_REC, ptr::null()) } != 0 {
         return Err(Error::Sandbox(format!("bind-mount {}: {}", src.display(), std::io::Error::last_os_error())));
     }
-    if readonly {
-        return mount_setattr_ro_rec(dest);
-    }
+    if readonly { return mount_setattr_ro_rec(dest); }
     let flags = libc::MS_BIND | libc::MS_REMOUNT | libc::MS_REC | libc::MS_NOSUID | libc::MS_NODEV;
     if unsafe { libc::mount(ptr::null(), d.as_ptr(), ptr::null(), flags, ptr::null()) } != 0 {
         return Err(Error::Sandbox(format!("remount {}: {}", dest.display(), std::io::Error::last_os_error())));
@@ -180,19 +155,13 @@ fn tmpfs(dest: &Path) -> Result<()> {
 }
 
 fn check(ret: libc::c_int, action: &'static str) -> Result<()> {
-    if ret != 0 {
-        return Err(Error::io(action, std::io::Error::last_os_error()));
-    }
+    if ret != 0 { return Err(Error::io(action, std::io::Error::last_os_error())); }
     Ok(())
 }
 
-fn c(s: &str) -> Result<CString> {
-    CString::new(s).map_err(|_| Error::Usage("path contains NUL".into()))
-}
+fn c(s: &str) -> Result<CString> { CString::new(s).map_err(|_| Error::Usage("path contains NUL".into())) }
 
-fn c_path(p: &Path) -> Result<CString> {
-    CString::new(p.as_os_str().as_encoded_bytes()).map_err(|_| Error::Usage("path contains NUL".into()))
-}
+fn c_path(p: &Path) -> Result<CString> { CString::new(p.as_os_str().as_encoded_bytes()).map_err(|_| Error::Usage("path contains NUL".into())) }
 
 #[cfg(test)]
 mod tests {

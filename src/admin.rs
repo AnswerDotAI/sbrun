@@ -16,15 +16,11 @@ pub fn kernel_install() -> Result<()> {
         fs::write(config_path, SYSCTL_CONFIG).map_err(|err| Error::io_path("write", config_path, err))?;
 
         let status = Command::new(sysctl_program()).arg("--system").status().map_err(|err| Error::io("run sysctl --system", err))?;
-        if !status.success() {
-            return Err(Error::Usage(format!("sysctl --system failed: {status}")));
-        }
+        if !status.success() { return Err(Error::Usage(format!("sysctl --system failed: {status}"))); }
         Ok(())
     }
     #[cfg(not(target_os = "linux"))]
-    {
-        Err(Error::Usage("--kernel-install is only available on Linux".into()))
-    }
+    { Err(Error::Usage("--kernel-install is only available on Linux".into())) }
 }
 
 #[cfg(target_os = "linux")]
@@ -50,9 +46,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn kernel_install_requires_root_on_linux() {
-        if unsafe { libc::getuid() } == 0 && unsafe { libc::geteuid() } == 0 {
-            return;
-        }
+        if unsafe { libc::getuid() } == 0 && unsafe { libc::geteuid() } == 0 { return; }
         let err = ensure_kernel_install_allowed().unwrap_err();
         assert!(err.to_string().contains("--kernel-install requires running as root"));
     }

@@ -1,3 +1,1 @@
-fn main() {
-    sbrun::cli_main();
-}
+fn main() { sbrun::cli_main(); }
