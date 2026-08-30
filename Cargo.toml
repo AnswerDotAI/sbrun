@@ -20,10 +20,22 @@ thiserror = "2"
 toml = ">=0.9"
 
 [profile.release]
-lto = "thin"
-codegen-units = 1
+lto = false
+codegen-units = 16
 panic = "abort"
+
+[profile.release.package.sbrun]
+incremental = true
+
+[profile.dist]
+inherits = "release"
+lto = true
+incremental = false
+codegen-units = 1
 strip = true
+
+[profile.dist.package.sbrun]
+incremental = false
 
 [lints.clippy]
 too_many_arguments = "allow"
