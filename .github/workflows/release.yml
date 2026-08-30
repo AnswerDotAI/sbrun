@@ -37,10 +37,10 @@ jobs:
         run: python -m pip install --upgrade pip maturin
 
       - name: Build release binary
-        run: cargo build --release
+        run: cargo build --profile dist
 
       - name: Build Python wheel
-        run: maturin build --release --strip --out dist/py-dist
+        run: maturin build --profile dist --out dist/py-dist
 
       - name: Package release assets
         run: |
@@ -50,7 +50,7 @@ jobs:
           asset="sbrun-${tag}-${{ matrix.platform }}-${arch}.tar.gz"
           default_conf="sbrun.default.${{ matrix.platform }}.toml"
           mkdir -p dist/pkg
-          cp target/release/sbrun README.md "$default_conf" dist/pkg/
+          cp target/dist/sbrun README.md "$default_conf" dist/pkg/
           tar -C dist/pkg -czf "dist/${asset}" .
           shasum -a 256 "dist/${asset}" > "dist/SHA256SUMS-${{ matrix.platform }}"
           printf 'RELEASE_ASSET=%s\n' "dist/${asset}" >> "$GITHUB_ENV"

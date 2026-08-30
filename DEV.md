@@ -74,8 +74,8 @@ Push a tag like `v0.0.3` to trigger the GitHub Actions release workflow in
 The workflow builds on both macOS and Linux in parallel:
 
 - installs Rust and Python
-- builds `target/release/sbrun`
-- builds the wheel (the `sbrun` binary packaged for `pip install`, via maturin `bin` bindings) with `maturin build --release --strip`
+- builds `target/dist/sbrun`
+- builds the wheel (the `sbrun` binary packaged for `pip install`, via maturin `bin` bindings) with `maturin build --profile dist`
 - packages platform-specific tarballs (e.g. `sbrun-v0.0.3-macos-arm64.tar.gz`,
   `sbrun-v0.0.3-linux-x86_64.tar.gz`)
 - uploads all assets and wheels to a single GitHub release
@@ -91,7 +91,7 @@ Note: this repo previously bumped *before* releasing, so on the first use of thi
 Publish the Python package with:
 
 ```sh
-maturin publish --release --strip
+maturin publish --profile dist
 ```
 
 The CI workflow publishes both macOS and Linux wheels to PyPI automatically.
