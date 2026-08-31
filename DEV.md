@@ -50,11 +50,7 @@ That runs:
 - `cargo build`
 - `pytest -q tests/test_sbrun.py` — integration tests (sandbox enforcement, config, environment)
 
-Tests run on both macOS and Linux.
-GitHub Actions runs the full suite on macOS from `.github/workflows/test.yml` on pushes to `main`.
-On GitHub-hosted Linux it only runs `cargo test` and `cargo build`, because the hosted environment blocks the
-user-namespace setup needed for the Linux sandbox integration tests. Use a self-hosted Linux runner, or any Linux
-environment whose policy allows unprivileged user and mount namespaces, for full Linux integration coverage.
+Tests run on both macOS and Linux. GitHub Actions runs the full suite on macOS from `.github/workflows/test.yml` on pushes to `main`. On GitHub-hosted Linux it only runs `cargo test` and `cargo build`, because the hosted environment blocks the user-namespace setup needed for the Linux sandbox integration tests. Use a self-hosted Linux runner, or any Linux environment whose policy allows unprivileged user and mount namespaces, for full Linux integration coverage.
 
 ## Versioning
 
@@ -68,16 +64,14 @@ ship-rs-bump
 
 ## Release
 
-Push a tag like `v0.0.3` to trigger the GitHub Actions release workflow in
-`.github/workflows/release.yml`.
+Push a tag like `v0.0.3` to trigger the GitHub Actions release workflow in `.github/workflows/release.yml`.
 
 The workflow builds on both macOS and Linux in parallel:
 
 - installs Rust and Python
 - builds `target/dist/sbrun`
 - builds the wheel (the `sbrun` binary packaged for `pip install`, via maturin `bin` bindings) with `maturin build --profile dist`
-- packages platform-specific tarballs (e.g. `sbrun-v0.0.3-macos-arm64.tar.gz`,
-  `sbrun-v0.0.3-linux-x86_64.tar.gz`)
+- packages platform-specific tarballs (e.g. `sbrun-v0.0.3-macos-arm64.tar.gz`, `sbrun-v0.0.3-linux-x86_64.tar.gz`)
 - uploads all assets and wheels to a single GitHub release
 
 For the local release flow:
@@ -100,11 +94,4 @@ The CI workflow publishes both macOS and Linux wheels to PyPI automatically.
 
 **macOS**: sandbox is applied via Seatbelt (`libsandbox`). Requires macOS.
 
-**Linux**: default sandbox uses unprivileged user namespaces + mount
-namespaces (inspired by [bubblewrap](https://github.com/containers/bubblewrap)).
-When the native `sbrun` binary is installed setuid root, the same binary
-automatically switches to a privileged mount-namespace backend instead and
-drops back to the caller before `exec()`. Default unprivileged mode still
-requires `kernel.unprivileged_userns_clone=1` (default on most distros). The
-CLI also supports `sudo sbrun --kernel-install`, which writes
-`/etc/sysctl.d/90-sbrun.conf` and runs `sysctl --system` on Linux.
+**Linux**: default sandbox uses unprivileged user namespaces + mount namespaces (inspired by [bubblewrap](https://github.com/containers/bubblewrap)). When the native `sbrun` binary is installed setuid root, the same binary automatically switches to a privileged mount-namespace backend instead and drops back to the caller before `exec()`. Default unprivileged mode still requires `kernel.unprivileged_userns_clone=1` (default on most distros). The CLI also supports `sudo sbrun --kernel-install`, which writes `/etc/sysctl.d/90-sbrun.conf` and runs `sysctl --system` on Linux.

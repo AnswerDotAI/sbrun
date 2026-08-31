@@ -1,13 +1,9 @@
 # sbrun
 
-`sbrun` launches commands in a sandbox that only allows writes beneath the
-current directory tree plus paths you explicitly opt into.
+`sbrun` launches commands in a sandbox that only allows writes beneath the current directory tree plus paths you explicitly opt into.
 
 - **macOS**: uses the Seatbelt sandbox via `libsandbox`
-- **Linux**: uses unprivileged user namespaces + mount namespaces (inspired by
-  [bubblewrap](https://github.com/containers/bubblewrap)) by default; when the
-  native `sbrun` binary is installed setuid root, it automatically switches to
-  a privileged mount-namespace backend
+- **Linux**: uses unprivileged user namespaces + mount namespaces (inspired by [bubblewrap](https://github.com/containers/bubblewrap)) by default; when the native `sbrun` binary is installed setuid root, it automatically switches to a privileged mount-namespace backend
 
 The implementation is a single Rust crate:
 
@@ -23,8 +19,7 @@ Install the latest release (macOS Apple Silicon only):
 curl -fsSL https://raw.githubusercontent.com/AnswerDotAI/sbrun/main/install.sh | bash
 ```
 
-On Linux, install the Python package (which includes the `sbrun` command) or
-build from source:
+On Linux, install the Python package (which includes the `sbrun` command) or build from source:
 
 ```sh
 pip install sbrun
@@ -132,8 +127,7 @@ Behavior:
 - stdout/stderr redirected to regular files outside allowed writable paths are rejected unless `SBRUN_ALLOW_STDIO_REDIRECTS=1`
 - exit codes: 127 if the command is not found, 126 if it is not executable, 111 for other `sbrun` errors
 
-To add a lock icon to sandboxed bash or zsh prompts, put this in your
-`~/.bashrc` or `~/.zshrc`:
+To add a lock icon to sandboxed bash or zsh prompts, put this in your `~/.bashrc` or `~/.zshrc`:
 
 ```sh
 eval "$(sbrun --prompt-init)"
@@ -146,8 +140,7 @@ eval "$(sbrun --prompt-init=bash)"
 eval "$(sbrun --prompt-init=zsh)"
 ```
 
-The generated hook uses `SBRUN_ACTIVE` and preserves existing bash
-`PROMPT_COMMAND` and zsh `precmd_functions` hooks.
+The generated hook uses `SBRUN_ACTIVE` and preserves existing bash `PROMPT_COMMAND` and zsh `precmd_functions` hooks.
 
 ## Config
 
@@ -157,8 +150,7 @@ The generated hook uses `SBRUN_ACTIVE` and preserves existing bash
 - `$XDG_CONFIG_HOME/sbrun/config.toml`
 - `~/.config/sbrun/config.toml` when `XDG_CONFIG_HOME` is unset
 
-`--config PATH` replaces those defaults with one explicit file. `--no-config`
-skips config loading entirely.
+`--config PATH` replaces those defaults with one explicit file. `--no-config` skips config loading entirely.
 
 Example:
 
@@ -180,38 +172,21 @@ Rules:
 - config paths must be absolute or start with `~/`
 - `env_dir` and `unset_env` are CLI-only
 
-On first run, if no config file exists, `sbrun` auto-creates
-`~/.config/sbrun/config.toml` with sensible platform defaults (writable
-`/tmp`, `~/.cache`, `~/.config`, etc). The defaults are also shipped in the
-repo as `sbrun.default.macos.toml` and `sbrun.default.linux.toml`.
+On first run, if no config file exists, `sbrun` auto-creates `~/.config/sbrun/config.toml` with sensible platform defaults (writable `/tmp`, `~/.cache`, `~/.config`, etc). The defaults are also shipped in the repo as `sbrun.default.macos.toml` and `sbrun.default.linux.toml`.
 
 ## Platform notes
 
 ### macOS
 
-The sandbox is applied via the Seatbelt profile language and `libsandbox`.
-All reads are allowed; writes are confined to the working directory and
-configured paths.
+The sandbox is applied via the Seatbelt profile language and `libsandbox`. All reads are allowed; writes are confined to the working directory and configured paths.
 
 ### Linux
 
-The sandbox uses unprivileged user namespaces (`CLONE_NEWUSER`) and mount
-namespaces (`CLONE_NEWNS`), the same approach used by
-[bubblewrap](https://github.com/containers/bubblewrap). The root filesystem
-is bind-mounted read-only, then writable paths are bind-mounted back on top.
-Default installs require neither root nor setuid.
+The sandbox uses unprivileged user namespaces (`CLONE_NEWUSER`) and mount namespaces (`CLONE_NEWNS`), the same approach used by [bubblewrap](https://github.com/containers/bubblewrap). The root filesystem is bind-mounted read-only, then writable paths are bind-mounted back on top. Default installs require neither root nor setuid.
 
-When neither the working directory nor any allowed write path is under
-`/tmp`, a private 256M tmpfs is mounted on `/tmp` so that `TMPDIR` stays
-usable; its contents are discarded when the sandbox exits. When `/tmp` is
-writable (the default config allows it), the real shared `/tmp` is used, as
-on macOS.
+When neither the working directory nor any allowed write path is under `/tmp`, a private 256M tmpfs is mounted on `/tmp` so that `TMPDIR` stays usable; its contents are discarded when the sandbox exits. When `/tmp` is writable (the default config allows it), the real shared `/tmp` is used, as on macOS.
 
-If the native `sbrun` binary is installed root-owned and setuid, `sbrun`
-automatically switches to a privileged Linux backend. In that mode it skips
-`CLONE_NEWUSER`, sets up the mount namespace as root, then drops back to the
-calling user before `exec()`. That avoids AppArmor's unprivileged user
-namespace restriction without changing kernel settings.
+If the native `sbrun` binary is installed root-owned and setuid, `sbrun` automatically switches to a privileged Linux backend. In that mode it skips `CLONE_NEWUSER`, sets up the mount namespace as root, then drops back to the calling user before `exec()`. That avoids AppArmor's unprivileged user namespace restriction without changing kernel settings.
 
 Example optional install:
 
@@ -219,14 +194,11 @@ Example optional install:
 sudo install -o root -g root -m 4755 ./target/release/sbrun /usr/local/bin/sbrun
 ```
 
-The setuid mode only applies to the native binary, not a Python console-script
-wrapper.
+The setuid mode only applies to the native binary, not a Python console-script wrapper.
 
 Requires `kernel.unprivileged_userns_clone=1` (the default on most distros).
 
-On Ubuntu 24.04, the most common failure is AppArmor blocking unprivileged user
-namespaces. The usual symptom is that `sbrun` fails before starting your
-command with an error like:
+On Ubuntu 24.04, the most common failure is AppArmor blocking unprivileged user namespaces. The usual symptom is that `sbrun` fails before starting your command with an error like:
 
 - `write /proc/self/setgroups: Permission denied`
 - `write /proc/self/uid_map: Operation not permitted`
@@ -265,13 +237,11 @@ kernel setting change:
 sudo install -o root -g root -m 4755 sbrun /usr/local/bin/sbrun
 ```
 
-GitHub-hosted Linux runners currently hit this restriction too, so this repo
-only runs full sandbox integration tests on macOS in GitHub Actions.
+GitHub-hosted Linux runners currently hit this restriction too, so this repo only runs full sandbox integration tests on macOS in GitHub Actions.
 
 ## Python
 
-The Python API is intentionally minimal and follows the same `exec` model as the
-CLI:
+The Python API is intentionally minimal and follows the same `exec` model as the CLI:
 
 ```python
 import sbrun
@@ -284,8 +254,7 @@ sbrun.exec(
 )
 ```
 
-On success, `sbrun.exec(...)` does not return because it replaces the current
-process image. On failure, it raises a Python exception.
+On success, `sbrun.exec(...)` does not return because it replaces the current process image. On failure, it raises a Python exception.
 
 ## Development
 
