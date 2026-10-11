@@ -50,7 +50,7 @@ That runs:
 - `cargo build`
 - `pytest -q tests/test_sbrun.py` — integration tests (sandbox enforcement, config, environment)
 
-Tests run on both macOS and Linux. GitHub Actions runs the full suite on macOS from `.github/workflows/test.yml` on pushes to `main`. On GitHub-hosted Linux it only runs `cargo test` and `cargo build`, because the hosted environment blocks the user-namespace setup needed for the Linux sandbox integration tests. Use a self-hosted Linux runner, or any Linux environment whose policy allows unprivileged user and mount namespaces, for full Linux integration coverage.
+GitHub Actions runs the full suite on macOS arm64, Linux x86_64, and Linux aarch64 from `.github/workflows/test.yml` on pushes to `main`. The Linux jobs enable unprivileged user namespaces and allow their use under AppArmor before running the integration tests. Local Ubuntu installations need the one-time setup documented in the README's Linux platform notes.
 
 ## Versioning
 
@@ -66,12 +66,13 @@ ship-rs-bump
 
 Push a tag like `v0.0.3` to trigger the GitHub Actions release workflow in `.github/workflows/release.yml`.
 
-The workflow builds on both macOS and Linux in parallel:
+The workflow builds natively on macOS arm64, Linux x86_64, and Linux aarch64 in parallel:
 
 - installs Rust and Python
 - builds `target/dist/sbrun`
 - builds the wheel (the `sbrun` binary packaged for `pip install`, via maturin `bin` bindings) with `maturin build --profile dist`
-- packages platform-specific tarballs (e.g. `sbrun-v0.0.3-macos-arm64.tar.gz`, `sbrun-v0.0.3-linux-x86_64.tar.gz`)
+- packages platform- and architecture-specific tarballs (e.g. `sbrun-v0.0.3-macos-arm64.tar.gz`, `sbrun-v0.0.3-linux-x86_64.tar.gz`, `sbrun-v0.0.3-linux-aarch64.tar.gz`)
+- keeps build artifacts and checksum files distinct for each platform and architecture
 - uploads all assets and wheels to a single GitHub release
 
 For the local release flow:
@@ -88,7 +89,7 @@ Publish the Python package with:
 maturin publish --profile dist
 ```
 
-The CI workflow publishes both macOS and Linux wheels to PyPI automatically.
+The CI workflow publishes macOS arm64, Linux x86_64, and Linux aarch64 wheels to PyPI automatically.
 
 ## Platform notes
 

@@ -18,6 +18,8 @@ jobs:
             platform: macos
           - os: ubuntu-latest
             platform: linux
+          - os: ubuntu-24.04-arm
+            platform: linux
 
     runs-on: ${{ matrix.os }}
 
@@ -52,13 +54,13 @@ jobs:
           mkdir -p dist/pkg
           cp target/dist/sbrun README.md "$default_conf" dist/pkg/
           tar -C dist/pkg -czf "dist/${asset}" .
-          shasum -a 256 "dist/${asset}" > "dist/SHA256SUMS-${{ matrix.platform }}"
+          shasum -a 256 "dist/${asset}" > "dist/SHA256SUMS-${{ matrix.platform }}-${arch}"
           printf 'RELEASE_ASSET=%s\n' "dist/${asset}" >> "$GITHUB_ENV"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: build-${{ matrix.platform }}
+          name: build-${{ matrix.platform }}-${{ runner.arch }}
           path: |
             dist/py-dist/*.whl
             dist/sbrun-*.tar.gz

@@ -25,6 +25,14 @@ On Linux, install the Python package (which includes the `sbrun` command) or bui
 pip install sbrun
 ```
 
+On Ubuntu 24.04 and later, the default Linux backend requires this one-time setup to allow unprivileged user namespaces:
+
+```sh
+sudo sbrun --kernel-install
+```
+
+This applies the required system-wide kernel settings immediately and persists them across reboots in `/etc/sysctl.d/90-sbrun.conf`. See the [Linux platform notes](#linux) for details and the alternative setuid setup.
+
 Build locally:
 
 ```sh
@@ -198,7 +206,7 @@ The setuid mode only applies to the native binary, not a Python console-script w
 
 Requires `kernel.unprivileged_userns_clone=1` (the default on most distros).
 
-On Ubuntu 24.04, the most common failure is AppArmor blocking unprivileged user namespaces. The usual symptom is that `sbrun` fails before starting your command with an error like:
+On Ubuntu 24.04 and later, the default AppArmor policy restricts the unprivileged user namespaces that `sbrun` needs. Use one of the setup options below before running sandboxed commands. Without this setup, `sbrun` typically fails before starting your command with an error like:
 
 - `write /proc/self/setgroups: Permission denied`
 - `write /proc/self/uid_map: Operation not permitted`
@@ -237,7 +245,7 @@ kernel setting change:
 sudo install -o root -g root -m 4755 sbrun /usr/local/bin/sbrun
 ```
 
-GitHub-hosted Linux runners currently hit this restriction too, so this repo only runs full sandbox integration tests on macOS in GitHub Actions.
+GitHub Actions applies the same user-namespace settings on its Linux runners before running the full sandbox integration suite.
 
 ## Python
 
