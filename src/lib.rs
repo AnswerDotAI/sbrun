@@ -9,15 +9,7 @@ mod profile;
 mod prompt;
 mod sandbox;
 
-use std::{
-    collections::HashSet,
-    convert::Infallible,
-    env,
-    ffi::{OsStr, OsString},
-    os::unix::process::CommandExt,
-    path::{Path, PathBuf},
-    process::Command,
-};
+use std::{collections::HashSet, convert::Infallible, env, ffi::{OsStr, OsString}, os::unix::process::CommandExt, path::{Path, PathBuf}, process::Command};
 
 pub use cli::{Command as CliCommand, help_text, parse as parse_cli};
 pub use config::ConfigMode;
@@ -28,22 +20,10 @@ pub fn cli_main_with_args<I: IntoIterator<Item = OsString>>(args: I) {
     let program = args.first().map_or_else(|| OsString::from("sbrun"), |a| a.clone());
     let program = program.to_string_lossy();
     let err = match parse_cli(args) {
-        Ok(CliCommand::Help) => {
-            print!("{}", help_text(&program));
-            return;
-        }
-        Ok(CliCommand::Version) => {
-            println!("sbrun {}", env!("CARGO_PKG_VERSION"));
-            return;
-        }
+        Ok(CliCommand::Help) => { print!("{}", help_text(&program)); return; }
+        Ok(CliCommand::Version) => { println!("sbrun {}", env!("CARGO_PKG_VERSION")); return; }
         Ok(CliCommand::KernelInstall) => match admin::kernel_install() { Ok(()) => return, Err(err) => err },
-        Ok(CliCommand::PromptInit(shell)) => match prompt::init_script(shell.as_deref()) {
-            Ok(script) => {
-                print!("{script}");
-                return;
-            }
-            Err(err) => err,
-        },
+        Ok(CliCommand::PromptInit(shell)) => match prompt::init_script(shell.as_deref()) { Ok(script) => { print!("{script}"); return; } Err(err) => err },
         Ok(CliCommand::Run { target, options }) => run(target, options).unwrap_err(),
         Err(err) => {
             eprintln!("sbrun: {err}");
@@ -64,12 +44,7 @@ fn exit_code(err: &Error) -> i32 {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct Options {
-    pub write: Vec<PathBuf>,
-    pub env_dir: Vec<String>,
-    pub unset_env: Vec<String>,
-    pub config: ConfigMode,
-}
+pub struct Options { pub write: Vec<PathBuf>, pub env_dir: Vec<String>, pub unset_env: Vec<String>, pub config: ConfigMode }
 
 #[derive(Debug, Clone)]
 pub enum RunTarget { InteractiveShell, ShellCommand(String), Exec(Vec<OsString>) }
@@ -136,18 +111,10 @@ fn prepare_env_dirs(workdir: &Path, env_dir: &[String]) -> Result<Option<PathBuf
 /// The Linux sandbox can only bind-mount existing files, so the history file
 /// must exist before entering the sandbox. Failure just means no history.
 #[cfg(target_os = "linux")]
-fn ensure_file(path: &Path) -> bool {
-    use std::fs::OpenOptions;
-    OpenOptions::new().append(true).create(true).open(path).is_ok()
-}
+fn ensure_file(path: &Path) -> bool { use std::fs::OpenOptions; OpenOptions::new().append(true).create(true).open(path).is_ok() }
 
 fn build_child_env(
-    host: &host::Host,
-    workdir: &Path,
-    histfile: Option<&Path>,
-    envdir_root: Option<&Path>,
-    env_dir: &[String],
-    unset_env: &[String],
+    host: &host::Host, workdir: &Path, histfile: Option<&Path>, envdir_root: Option<&Path>, env_dir: &[String], unset_env: &[String]
 ) -> Vec<(OsString, OsString)> {
     let mut env_map: Vec<(OsString, OsString)> = env::vars_os().collect();
     remove_env(&mut env_map, "BASH_ENV");
@@ -166,7 +133,8 @@ fn build_child_env(
     for name in unset_env { remove_env(&mut env_map, name); }
 
     let path = env::var_os("PATH").unwrap_or_else(|| {
-        if cfg!(target_os = "macos") { OsString::from("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin") } else { OsString::from("/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin") }
+        if cfg!(target_os = "macos") { OsString::from("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin") }
+        else { OsString::from("/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin") }
     });
     set_env(&mut env_map, "PATH", &path);
     set_env(&mut env_map, "PWD", workdir.as_os_str());
@@ -231,20 +199,7 @@ fn valid_env_name(name: &str) -> bool {
 
 fn reserved_unset_env(name: &str) -> bool {
     matches!(
-        name,
-        "PATH"
-            | "PWD"
-            | "HOME"
-            | "TMPDIR"
-            | "HISTFILE"
-            | "SHELL"
-            | "SBRUN_ACTIVE"
-            | "USER"
-            | "LOGNAME"
-            | "TERM"
-            | "LANG"
-            | "LC_ALL"
-            | "LC_CTYPE"
+        name, "PATH" | "PWD" | "HOME" | "TMPDIR" | "HISTFILE" | "SHELL" | "SBRUN_ACTIVE" | "USER" | "LOGNAME" | "TERM" | "LANG" | "LC_ALL" | "LC_CTYPE"
             | "BASH_SILENCE_DEPRECATION_WARNING"
     )
 }
@@ -283,16 +238,9 @@ mod tests {
     #[test]
     fn parse_write_and_unset() {
         let parsed = parse_cli([
-            OsString::from("sbrun"),
-            OsString::from("-w"),
-            OsString::from("/tmp"),
-            OsString::from("--unset-env"),
-            OsString::from("FOO"),
-            OsString::from("--"),
-            OsString::from("echo"),
-            OsString::from("hi"),
-        ])
-        .unwrap();
+            OsString::from("sbrun"), OsString::from("-w"), OsString::from("/tmp"), OsString::from("--unset-env"), OsString::from("FOO"), OsString::from("--"),
+            OsString::from("echo"), OsString::from("hi"),
+        ]).unwrap();
         let CliCommand::Run { options, .. } = parsed else { panic!() };
         assert_eq!(options.write, vec![std::path::PathBuf::from("/tmp")]);
         assert_eq!(options.unset_env, vec!["FOO".to_string()]);

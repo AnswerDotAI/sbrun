@@ -1,11 +1,4 @@
-use std::{
-    env,
-    ffi::{CStr, OsStr, OsString},
-    io,
-    mem::MaybeUninit,
-    os::unix::ffi::{OsStrExt, OsStringExt},
-    path::{Path, PathBuf},
-};
+use std::{env, ffi::{CStr, OsStr, OsString}, io, mem::MaybeUninit, os::unix::ffi::{OsStrExt, OsStringExt}, path::{Path, PathBuf}};
 
 use crate::error::{Error, Result};
 
@@ -21,17 +14,12 @@ pub fn current() -> Result<Host> {
     loop {
         let err = unsafe { libc::getpwuid_r(uid, pwd.as_mut_ptr(), buf.as_mut_ptr().cast(), buf.len(), &mut result) };
         if err == 0 { break; }
-        if err == libc::ERANGE {
-            buf.resize(buf.len() * 2, 0);
-            continue;
-        }
+        if err == libc::ERANGE { buf.resize(buf.len() * 2, 0); continue; }
         return Err(Error::io("getpwuid_r", io::Error::from_raw_os_error(err)));
     }
 
-    let (home, passwd_shell, user) = if result.is_null() { (None, None, None) } else {
-        let pwd = unsafe { pwd.assume_init() };
-        (c_path(pwd.pw_dir), c_path(pwd.pw_shell), c_os_string(pwd.pw_name))
-    };
+    let (home, passwd_shell, user) = if result.is_null() { (None, None, None) }
+    else { let pwd = unsafe { pwd.assume_init() }; (c_path(pwd.pw_dir), c_path(pwd.pw_shell), c_os_string(pwd.pw_name)) };
 
     let shell = pick_shell(env::var_os("SHELL").map(PathBuf::from), passwd_shell)?;
     Ok(Host { home, shell, user })

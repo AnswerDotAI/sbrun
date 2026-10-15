@@ -1,9 +1,4 @@
-use std::{
-    ffi::CString,
-    fs,
-    path::{Path, PathBuf},
-    ptr,
-};
+use std::{ffi::CString, fs, path::{Path, PathBuf}, ptr};
 
 use crate::error::{Error, Result};
 
@@ -19,12 +14,7 @@ pub fn temporarily_drop_to_real_user() -> Result<Option<PreflightPrivilegeGuard>
     Ok(Some(PreflightPrivilegeGuard))
 }
 
-impl PreflightPrivilegeGuard {
-    pub fn restore_root(self) -> Result<()> {
-        check(unsafe { libc::seteuid(0) }, "seteuid(0)")?;
-        Ok(())
-    }
-}
+impl PreflightPrivilegeGuard { pub fn restore_root(self) -> Result<()> { check(unsafe { libc::seteuid(0) }, "seteuid(0)")?; Ok(()) } }
 
 pub fn apply(workdir: &Path, write_dirs: &[PathBuf], write_files: &[PathBuf], histfile: Option<&Path>) -> Result<()> {
     match mode_from_ids(current_ids()) {
@@ -76,9 +66,7 @@ fn setup_mounts(workdir: &Path, write_dirs: &[PathBuf], write_files: &[PathBuf],
 
     for d in std::iter::once(workdir).chain(write_dirs.iter().map(|p| p.as_path())) { bind(d, d, false)?; }
     for f in write_files { bind(f, f, false)?; }
-    if let Some(histfile) = histfile
-        && fs::symlink_metadata(histfile).is_ok()
-    { bind(histfile, histfile, false)?; }
+    if let Some(histfile) = histfile && fs::symlink_metadata(histfile).is_ok() { bind(histfile, histfile, false)?; }
 
     // Try to remount /proc for the new namespace (non-fatal)
     let _ =
@@ -89,9 +77,7 @@ fn setup_mounts(workdir: &Path, write_dirs: &[PathBuf], write_files: &[PathBuf],
 
 fn tmp_overlaps_writes(workdir: &Path, write_dirs: &[PathBuf], write_files: &[PathBuf]) -> bool {
     let tmp = Path::new("/tmp");
-    std::iter::once(workdir)
-        .chain(write_dirs.iter().map(|p| p.as_path()))
-        .chain(write_files.iter().map(|p| p.as_path()))
+    std::iter::once(workdir).chain(write_dirs.iter().map(|p| p.as_path())).chain(write_files.iter().map(|p| p.as_path()))
         .any(|p| p.starts_with(tmp) || tmp.starts_with(p))
 }
 
@@ -117,12 +103,7 @@ const MOUNT_ATTR_RDONLY: u64 = 0x1;
 const MOUNT_ATTR_NOSUID: u64 = 0x2;
 
 #[repr(C)]
-struct MountAttr {
-    attr_set: u64,
-    attr_clr: u64,
-    propagation: u64,
-    userns_fd: u64,
-}
+struct MountAttr { attr_set: u64, attr_clr: u64, propagation: u64, userns_fd: u64 }
 
 fn mount_setattr_ro_rec(path: &Path) -> Result<()> {
     let p = c_path(path)?;
@@ -150,14 +131,10 @@ fn tmpfs(dest: &Path) -> Result<()> {
     let d = c_path(dest)?;
     check(
         unsafe { libc::mount(c("tmpfs")?.as_ptr(), d.as_ptr(), c("tmpfs")?.as_ptr(), libc::MS_NOSUID | libc::MS_NODEV, c("size=256M")?.as_ptr().cast()) },
-        "tmpfs",
-    )
+        "tmpfs")
 }
 
-fn check(ret: libc::c_int, action: &'static str) -> Result<()> {
-    if ret != 0 { return Err(Error::io(action, std::io::Error::last_os_error())); }
-    Ok(())
-}
+fn check(ret: libc::c_int, action: &'static str) -> Result<()> { if ret != 0 { return Err(Error::io(action, std::io::Error::last_os_error())); } Ok(()) }
 
 fn c(s: &str) -> Result<CString> { CString::new(s).map_err(|_| Error::Usage("path contains NUL".into())) }
 

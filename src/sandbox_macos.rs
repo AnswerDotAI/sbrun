@@ -1,12 +1,6 @@
-use std::{
-    ffi::{CStr, CString, c_char, c_int, c_void},
-    path::Path,
-};
+use std::{ffi::{CStr, CString, c_char, c_int, c_void}, path::Path};
 
-use crate::{
-    error::{Error, Result},
-    pathutil::path_to_cstring,
-};
+use crate::{error::{Error, Result}, pathutil::path_to_cstring};
 
 #[link(name = "sandbox")]
 unsafe extern "C" {
@@ -55,7 +49,8 @@ impl Params {
         let mut errorbuf = std::ptr::null_mut();
         let compiled = unsafe { sandbox_compile_string(profile.as_ptr(), self.raw, &mut errorbuf) };
         if compiled.is_null() {
-            let detail = if errorbuf.is_null() { "sandbox profile compilation failed".to_string() } else { unsafe { CStr::from_ptr(errorbuf) }.to_string_lossy().into_owned() };
+            let detail = if errorbuf.is_null() { "sandbox profile compilation failed".to_string() }
+            else { unsafe { CStr::from_ptr(errorbuf) }.to_string_lossy().into_owned() };
             return Err(Error::Sandbox(detail));
         }
         Ok(Profile(compiled))

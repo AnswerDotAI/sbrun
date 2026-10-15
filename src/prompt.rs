@@ -20,9 +20,7 @@ fn detect_shell() -> Result<PromptShell> {
 
 fn parse_shell(value: &str) -> Result<PromptShell> {
     match value.rsplit('/').next().unwrap_or(value) {
-        "bash" => Ok(PromptShell::Bash),
-        "zsh" => Ok(PromptShell::Zsh),
-        _ => Err(Error::Usage("--prompt-init only supports bash and zsh".into())),
+        "bash" => Ok(PromptShell::Bash), "zsh" => Ok(PromptShell::Zsh), _ => Err(Error::Usage("--prompt-init only supports bash and zsh".into()))
     }
 }
 

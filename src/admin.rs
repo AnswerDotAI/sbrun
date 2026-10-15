@@ -33,9 +33,7 @@ fn ensure_kernel_install_allowed() -> Result<()> {
 
 #[cfg(target_os = "linux")]
 fn sysctl_program() -> &'static str {
-    ["/usr/sbin/sysctl", "/sbin/sysctl", "sysctl"]
-        .into_iter()
-        .find(|candidate| !candidate.starts_with('/') || Path::new(candidate).exists())
+    ["/usr/sbin/sysctl", "/sbin/sysctl", "sysctl"].into_iter().find(|candidate| !candidate.starts_with('/') || Path::new(candidate).exists())
         .unwrap_or("sysctl")
 }
 

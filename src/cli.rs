@@ -1,28 +1,12 @@
-use std::{
-    ffi::{OsStr, OsString},
-    os::unix::ffi::OsStringExt,
-    path::PathBuf,
-};
+use std::{ffi::{OsStr, OsString}, os::unix::ffi::OsStringExt, path::PathBuf};
 
-use crate::{
-    ConfigMode, Options, RunTarget,
-    error::{Error, Result},
-};
+use crate::{ConfigMode, Options, RunTarget, error::{Error, Result}};
 
 pub(crate) const CONFIG_CONFLICT: &str = "--config and --no-config cannot be used together";
 
-pub enum Command {
-    Help,
-    Version,
-    KernelInstall,
-    PromptInit(Option<String>),
-    Run { target: RunTarget, options: Options },
-}
+pub enum Command { Help, Version, KernelInstall, PromptInit(Option<String>), Run { target: RunTarget, options: Options } }
 
-pub fn parse<I>(args: I) -> Result<Command>
-where
-    I: IntoIterator<Item = OsString>,
-{
+pub fn parse<I>(args: I) -> Result<Command> where I: IntoIterator<Item = OsString> {
     let mut args = args.into_iter();
     let _program = args.next();
 
@@ -36,24 +20,15 @@ where
     let mut prompt_init = None;
 
     while let Some(arg) = args.next() {
-        if arg == OsStr::new("--") {
-            command.extend(args);
-            break;
-        }
+        if arg == OsStr::new("--") { command.extend(args); break; }
         let Some((flag, inline)) = parse_option(&arg)? else {
             command.push(arg);
             command.extend(args);
             break;
         };
         match flag.as_str() {
-            "help" => {
-                no_value(&flag, &inline)?;
-                return Ok(Command::Help);
-            }
-            "version" => {
-                no_value(&flag, &inline)?;
-                return Ok(Command::Version);
-            }
+            "help" => { no_value(&flag, &inline)?; return Ok(Command::Help); }
+            "version" => { no_value(&flag, &inline)?; return Ok(Command::Version); }
             "kernel-install" => {
                 no_value(&flag, &inline)?;
                 kernel_install = true;
@@ -81,11 +56,7 @@ where
         }
     }
 
-    let has_run_args = !write.is_empty()
-        || !env_dir.is_empty()
-        || !unset_env.is_empty()
-        || shell_command.is_some()
-        || !command.is_empty()
+    let has_run_args = !write.is_empty() || !env_dir.is_empty() || !unset_env.is_empty() || shell_command.is_some() || !command.is_empty()
         || !matches!(config, ConfigMode::Default);
 
     if kernel_install {
@@ -98,7 +69,9 @@ where
     }
     if shell_command.is_some() && !command.is_empty() { return Err(Error::Usage("use either --command/-c or a direct command, not both".into())); }
 
-    let target = if let Some(command) = shell_command { RunTarget::ShellCommand(command) } else if command.is_empty() { RunTarget::InteractiveShell } else { RunTarget::Exec(command) };
+    let target = if let Some(command) = shell_command { RunTarget::ShellCommand(command) }
+    else if command.is_empty() { RunTarget::InteractiveShell }
+    else { RunTarget::Exec(command) };
 
     Ok(Command::Run { target, options: Options { write, env_dir, unset_env, config } })
 }
@@ -146,8 +119,7 @@ fn parse_option(arg: &OsStr) -> Result<Option<(String, Option<OsString>)>> {
     if !bytes.starts_with(b"-") || bytes == b"-" { return Ok(None); }
     if let Some(body) = bytes.strip_prefix(b"--") {
         let (name, value) = match body.iter().position(|&b| b == b'=') {
-            Some(eq) => (&body[..eq], Some(OsString::from_vec(body[eq + 1..].to_vec()))),
-            None => (body, None),
+            Some(eq) => (&body[..eq], Some(OsString::from_vec(body[eq + 1..].to_vec()))), None => (body, None)
         };
         let name = std::str::from_utf8(name).map_err(|_| Error::Usage("option names must be utf-8".into()))?;
         return Ok(Some((name.to_string(), value)));
@@ -156,20 +128,14 @@ fn parse_option(arg: &OsStr) -> Result<Option<(String, Option<OsString>)>> {
     let mut chars = text[1..].chars();
     let (Some(short), None) = (chars.next(), chars.next()) else { return Err(Error::Usage(format!("unknown option {text}"))); };
     let long = match short {
-        'h' => "help",
-        'w' => "write",
-        'd' => "env-dir",
-        'u' => "unset-env",
-        'c' => "command",
-        _ => return Err(Error::Usage(format!("unknown option -{short}"))),
+        'h' => "help", 'w' => "write", 'd' => "env-dir", 'u' => "unset-env", 'c' => "command", _ => return Err(Error::Usage(format!("unknown option -{short}")))
     };
     Ok(Some((long.to_string(), None)))
 }
 
-fn take_value<I>(flag: &str, inline: Option<OsString>, args: &mut I) -> Result<OsString>
-where
-    I: Iterator<Item = OsString>,
-{ inline.or_else(|| args.next()).filter(|value| !value.is_empty()).ok_or_else(|| Error::Usage(format!("--{flag} requires a value"))) }
+fn take_value<I>(flag: &str, inline: Option<OsString>, args: &mut I) -> Result<OsString> where I: Iterator<Item = OsString> {
+    inline.or_else(|| args.next()).filter(|value| !value.is_empty()).ok_or_else(|| Error::Usage(format!("--{flag} requires a value")))
+}
 
 fn no_value(flag: &str, inline: &Option<OsString>) -> Result<()> {
     if inline.is_some() { return Err(Error::Usage(format!("--{flag} does not take a value"))); }

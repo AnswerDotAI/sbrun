@@ -1,9 +1,4 @@
-use std::{
-    ffi::{CString, OsStr, OsString},
-    fs, io,
-    os::unix::ffi::{OsStrExt, OsStringExt},
-    path::{Path, PathBuf},
-};
+use std::{ffi::{CString, OsStr, OsString}, fs, io, os::unix::ffi::{OsStrExt, OsStringExt}, path::{Path, PathBuf}};
 
 use crate::error::{Error, Result};
 
@@ -18,9 +13,8 @@ pub fn ensure_real_directory(path: &Path) -> Result<()> {
             Ok(())
         }
         Err(err) if err.kind() == io::ErrorKind::NotFound => match fs::create_dir(path) {
-            Ok(()) => Ok(()),
-            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => ensure_real_directory(path),
-            Err(err) => Err(Error::io_path("create directory", path, err)),
+            Ok(()) => Ok(()), Err(err) if err.kind() == io::ErrorKind::AlreadyExists => ensure_real_directory(path),
+            Err(err) => Err(Error::io_path("create directory", path, err))
         },
         Err(err) => Err(Error::io_path("stat directory", path, err)),
     }
@@ -79,17 +73,13 @@ pub fn os_str_to_cstring(value: &OsStr) -> Result<CString> {
 fn resolve_write_path(path: &Path, home: Option<&Path>, optional: bool) -> Result<Option<ResolvedTarget>> {
     let expanded = expand_home(path, home)?;
     let resolved = match fs::canonicalize(&expanded) {
-        Ok(path) => path,
-        Err(err) if optional && matches!(err.raw_os_error(), Some(libc::ENOENT | libc::ENOTDIR)) => {
-            return Ok(None);
-        }
-        Err(err) => return Err(Error::io_path("resolve writable path", &expanded, err)),
+        Ok(path) => path, Err(err) if optional && matches!(err.raw_os_error(), Some(libc::ENOENT | libc::ENOTDIR)) => { return Ok(None); }
+        Err(err) => return Err(Error::io_path("resolve writable path", &expanded, err))
     };
 
     let meta = match fs::metadata(&resolved) {
-        Ok(meta) => meta,
-        Err(err) if optional && err.raw_os_error() == Some(libc::ENOENT) => return Ok(None),
-        Err(err) => return Err(Error::io_path("stat writable path", &resolved, err)),
+        Ok(meta) => meta, Err(err) if optional && err.raw_os_error() == Some(libc::ENOENT) => return Ok(None),
+        Err(err) => return Err(Error::io_path("stat writable path", &resolved, err))
     };
     if meta.is_dir() { return Ok(Some(ResolvedTarget::Dir(resolved))); }
     if meta.is_file() { return Ok(Some(ResolvedTarget::File(resolved))); }
@@ -99,12 +89,8 @@ fn resolve_write_path(path: &Path, home: Option<&Path>, optional: bool) -> Resul
 
 fn push_unique(allowed: &mut AllowedWrites, target: ResolvedTarget) {
     match target {
-        ResolvedTarget::Dir(path) => {
-            if !allowed.dirs.iter().any(|existing| existing == &path) { allowed.dirs.push(path); }
-        }
-        ResolvedTarget::File(path) => {
-            if !allowed.files.iter().any(|existing| existing == &path) { allowed.files.push(path); }
-        }
+        ResolvedTarget::Dir(path) => { if !allowed.dirs.iter().any(|existing| existing == &path) { allowed.dirs.push(path); } }
+        ResolvedTarget::File(path) => { if !allowed.files.iter().any(|existing| existing == &path) { allowed.files.push(path); } }
     }
 }
 
