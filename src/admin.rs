@@ -36,30 +36,3 @@ fn sysctl_program() -> &'static str {
     ["/usr/sbin/sysctl", "/sbin/sysctl", "sysctl"].into_iter().find(|candidate| !candidate.starts_with('/') || Path::new(candidate).exists())
         .unwrap_or("sysctl")
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn kernel_install_requires_root_on_linux() {
-        if unsafe { libc::getuid() } == 0 && unsafe { libc::geteuid() } == 0 { return; }
-        let err = ensure_kernel_install_allowed().unwrap_err();
-        assert!(err.to_string().contains("--kernel-install requires running as root"));
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn kernel_install_sysctl_config_has_required_keys() {
-        assert!(SYSCTL_CONFIG.contains("kernel.unprivileged_userns_clone=1"));
-        assert!(SYSCTL_CONFIG.contains("kernel.apparmor_restrict_unprivileged_userns=0"));
-    }
-
-    #[cfg(not(target_os = "linux"))]
-    #[test]
-    fn kernel_install_is_linux_only() {
-        let err = kernel_install().unwrap_err();
-        assert!(err.to_string().contains("only available on Linux"));
-    }
-}

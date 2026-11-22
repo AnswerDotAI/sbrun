@@ -30,19 +30,3 @@ fn escape(path: &Path) -> Result<String> {
     if text.contains('\n') || text.contains('\r') { return Err(Error::PathContainsNewline(text.to_owned())); }
     Ok(text.replace('\\', "\\\\").replace('"', "\\\""))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::ffi::OsStr;
-    use std::os::unix::ffi::OsStrExt;
-
-    #[test]
-    fn escape_rejects_non_utf8() {
-        let path = Path::new(OsStr::from_bytes(b"/tmp/\xff"));
-        assert!(escape(path).is_err());
-    }
-
-    #[test]
-    fn escape_quotes_and_backslashes() { assert_eq!(escape(Path::new(r#"/a"b\c"#)).unwrap(), r#"/a\"b\\c"#); }
-}

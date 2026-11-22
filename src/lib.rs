@@ -1,13 +1,13 @@
-mod admin;
+pub mod admin;
 mod cli;
-mod config;
+pub mod config;
 mod error;
-mod host;
-mod pathutil;
+pub mod host;
+pub mod pathutil;
 #[cfg(target_os = "macos")]
-mod profile;
-mod prompt;
-mod sandbox;
+pub mod profile;
+pub mod prompt;
+pub mod sandbox;
 
 use std::{collections::HashSet, convert::Infallible, env, ffi::{OsStr, OsString}, os::unix::process::CommandExt, path::{Path, PathBuf}, process::Command};
 
@@ -88,7 +88,7 @@ pub fn run(target: RunTarget, mut options: Options) -> Result<Infallible> {
     Err(Error::io("exec", command.exec()))
 }
 
-fn dedup_validate_env_names(env_dir: &mut Vec<String>, unset_env: &mut Vec<String>) -> Result<()> {
+pub fn dedup_validate_env_names(env_dir: &mut Vec<String>, unset_env: &mut Vec<String>) -> Result<()> {
     dedup(env_dir);
     dedup(unset_env);
 
@@ -212,170 +212,3 @@ fn set_env(env_map: &mut Vec<(OsString, OsString)>, key: &str, value: &OsStr) {
 }
 
 pub fn cli_main() { cli_main_with_args(env::args_os()) }
-
-#[cfg(test)]
-mod tests {
-    use crate::{CliCommand, ConfigMode, RunTarget, dedup, dedup_validate_env_names, parse_cli, remove_env, reserved_unset_env, set_env, valid_env_name};
-    use std::ffi::{OsStr, OsString};
-
-    #[test]
-    fn parse_direct_command() {
-        let parsed = parse_cli([OsString::from("sbrun"), OsString::from("python3"), OsString::from("-c"), OsString::from("print(1)")]).unwrap();
-        let CliCommand::Run { target, options } = parsed else { panic!("expected run command") };
-        assert!(matches!(options.config, ConfigMode::Default));
-        let RunTarget::Exec(argv) = target else { panic!("expected direct command") };
-        assert_eq!(argv, vec![OsString::from("python3"), OsString::from("-c"), OsString::from("print(1)")]);
-    }
-
-    #[test]
-    fn parse_shell_command() {
-        let parsed = parse_cli([OsString::from("sbrun"), OsString::from("-c"), OsString::from("echo hi")]).unwrap();
-        let CliCommand::Run { target, .. } = parsed else { panic!("expected run command") };
-        let RunTarget::ShellCommand(text) = target else { panic!("expected shell command") };
-        assert_eq!(text, "echo hi");
-    }
-
-    #[test]
-    fn parse_write_and_unset() {
-        let parsed = parse_cli([
-            OsString::from("sbrun"), OsString::from("-w"), OsString::from("/tmp"), OsString::from("--unset-env"), OsString::from("FOO"), OsString::from("--"),
-            OsString::from("echo"), OsString::from("hi"),
-        ]).unwrap();
-        let CliCommand::Run { options, .. } = parsed else { panic!() };
-        assert_eq!(options.write, vec![std::path::PathBuf::from("/tmp")]);
-        assert_eq!(options.unset_env, vec!["FOO".to_string()]);
-    }
-
-    #[test]
-    fn parse_no_config() {
-        let parsed = parse_cli([OsString::from("sbrun"), OsString::from("--no-config"), OsString::from("echo"), OsString::from("hi")]).unwrap();
-        let CliCommand::Run { options, .. } = parsed else { panic!() };
-        assert!(matches!(options.config, ConfigMode::None));
-    }
-
-    #[test]
-    fn parse_help() {
-        let parsed = parse_cli([OsString::from("sbrun"), OsString::from("--help")]).unwrap();
-        assert!(matches!(parsed, CliCommand::Help));
-    }
-
-    #[test]
-    fn parse_version() {
-        let parsed = parse_cli([OsString::from("sbrun"), OsString::from("--version")]).unwrap();
-        assert!(matches!(parsed, CliCommand::Version));
-    }
-
-    #[test]
-    fn parse_kernel_install() {
-        let parsed = parse_cli([OsString::from("sbrun"), OsString::from("--kernel-install")]).unwrap();
-        assert!(matches!(parsed, CliCommand::KernelInstall));
-    }
-
-    #[test]
-    fn parse_kernel_install_rejects_other_options() {
-        let err = parse_cli([OsString::from("sbrun"), OsString::from("--kernel-install"), OsString::from("--no-config")]).err().unwrap();
-        assert!(err.to_string().contains("--kernel-install cannot be combined"));
-    }
-
-    #[test]
-    fn parse_prompt_init() {
-        let parsed = parse_cli([OsString::from("sbrun"), OsString::from("--prompt-init")]).unwrap();
-        assert!(matches!(parsed, CliCommand::PromptInit(None)));
-    }
-
-    #[test]
-    fn parse_prompt_init_with_shell() {
-        let parsed = parse_cli([OsString::from("sbrun"), OsString::from("--prompt-init=zsh")]).unwrap();
-        let CliCommand::PromptInit(Some(shell)) = parsed else { panic!("expected prompt-init command") };
-        assert_eq!(shell, "zsh");
-    }
-
-    #[test]
-    fn parse_prompt_init_rejects_other_options() {
-        let err = parse_cli([OsString::from("sbrun"), OsString::from("--prompt-init"), OsString::from("--no-config")]).err().unwrap();
-        assert!(err.to_string().contains("--prompt-init cannot be combined"));
-    }
-
-    #[test]
-    fn parse_unknown_long_option_errors() {
-        let err = parse_cli([OsString::from("sbrun"), OsString::from("--bogus")]).err().unwrap();
-        assert!(err.to_string().contains("unknown option --bogus"));
-    }
-
-    #[test]
-    fn parse_combined_short_options_error() {
-        let err = parse_cli([OsString::from("sbrun"), OsString::from("-wc"), OsString::from("/tmp")]).err().unwrap();
-        assert!(err.to_string().contains("unknown option"));
-    }
-
-    #[test]
-    fn parse_dash_command_after_separator() {
-        let parsed = parse_cli([OsString::from("sbrun"), OsString::from("--"), OsString::from("--bogus")]).unwrap();
-        let CliCommand::Run { target, .. } = parsed else { panic!() };
-        let RunTarget::Exec(argv) = target else { panic!() };
-        assert_eq!(argv, vec![OsString::from("--bogus")]);
-    }
-
-    #[test]
-    fn parse_valueless_flag_rejects_value() {
-        let err = parse_cli([OsString::from("sbrun"), OsString::from("--no-config=x")]).err().unwrap();
-        assert!(err.to_string().contains("does not take a value"));
-    }
-
-    #[test]
-    fn valid_env_names() {
-        assert!(valid_env_name("FOO"));
-        assert!(valid_env_name("_BAR"));
-        assert!(valid_env_name("A123_B"));
-        assert!(!valid_env_name(""));
-        assert!(!valid_env_name("1BAD"));
-        assert!(!valid_env_name("NO-DASH"));
-        assert!(!valid_env_name("NO.DOT"));
-    }
-
-    #[test]
-    fn reserved_env_blocked() {
-        assert!(reserved_unset_env("PATH"));
-        assert!(reserved_unset_env("HOME"));
-        assert!(reserved_unset_env("SBRUN_ACTIVE"));
-        assert!(!reserved_unset_env("MY_CUSTOM_VAR"));
-    }
-
-    #[test]
-    fn dedup_removes_duplicates() {
-        let mut v = vec!["a".into(), "b".into(), "a".into(), "c".into(), "b".into()];
-        dedup(&mut v);
-        assert_eq!(v, vec!["a", "b", "c"]);
-    }
-
-    #[test]
-    fn env_map_set_and_remove() {
-        let mut env = vec![(OsString::from("A"), OsString::from("1")), (OsString::from("B"), OsString::from("2"))];
-        set_env(&mut env, "A", OsStr::new("99"));
-        assert_eq!(env.iter().filter(|(k, _)| k == "A").count(), 1);
-        assert_eq!(env.iter().find(|(k, _)| k == "A").unwrap().1, "99");
-        remove_env(&mut env, "B");
-        assert!(!env.iter().any(|(k, _)| k == "B"));
-    }
-
-    #[test]
-    fn dedup_validate_catches_conflict() {
-        let mut ed = vec!["FOO".into()];
-        let mut ue = vec!["FOO".into()];
-        assert!(dedup_validate_env_names(&mut ed, &mut ue).is_err());
-    }
-
-    #[test]
-    fn dedup_validate_catches_reserved() {
-        let mut ed = vec![];
-        let mut ue = vec!["PATH".into()];
-        assert!(dedup_validate_env_names(&mut ed, &mut ue).is_err());
-    }
-
-    #[test]
-    fn dedup_validate_catches_invalid_name() {
-        let mut ed = vec!["BAD-NAME".into()];
-        let mut ue = vec![];
-        assert!(dedup_validate_env_names(&mut ed, &mut ue).is_err());
-    }
-}

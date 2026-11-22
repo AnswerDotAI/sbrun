@@ -17,6 +17,7 @@ Developer workflow and release notes for `sbrun`.
 - `src/pathutil.rs`: path resolution and validation
 - `src/host.rs`: host info detection (shell, home, user)
 - `src/error.rs`: error types
+- `tests/sbrun.rs`: Rust public-API tests
 - `tests/test_sbrun.py`: pytest integration tests
 - `tools/test.sh`: standard local verification entrypoint
 

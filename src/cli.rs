@@ -4,6 +4,7 @@ use crate::{ConfigMode, Options, RunTarget, error::{Error, Result}};
 
 pub(crate) const CONFIG_CONFLICT: &str = "--config and --no-config cannot be used together";
 
+#[derive(Debug)]
 pub enum Command { Help, Version, KernelInstall, PromptInit(Option<String>), Run { target: RunTarget, options: Options } }
 
 pub fn parse<I>(args: I) -> Result<Command> where I: IntoIterator<Item = OsString> {

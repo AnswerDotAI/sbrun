@@ -3,7 +3,7 @@ use std::{ffi::CString, fs, path::{Path, PathBuf}, ptr};
 use crate::error::{Error, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PrivilegeMode { Unprivileged, Privileged }
+pub enum PrivilegeMode { Unprivileged, Privileged }
 
 pub struct PreflightPrivilegeGuard;
 
@@ -75,7 +75,7 @@ fn setup_mounts(workdir: &Path, write_dirs: &[PathBuf], write_files: &[PathBuf],
     Ok(())
 }
 
-fn tmp_overlaps_writes(workdir: &Path, write_dirs: &[PathBuf], write_files: &[PathBuf]) -> bool {
+pub fn tmp_overlaps_writes(workdir: &Path, write_dirs: &[PathBuf], write_files: &[PathBuf]) -> bool {
     let tmp = Path::new("/tmp");
     std::iter::once(workdir).chain(write_dirs.iter().map(|p| p.as_path())).chain(write_files.iter().map(|p| p.as_path()))
         .any(|p| p.starts_with(tmp) || tmp.starts_with(p))
@@ -94,9 +94,9 @@ fn permanently_drop_privileges() -> Result<()> {
 
 fn current_ids() -> (libc::uid_t, libc::uid_t) { (unsafe { libc::getuid() }, unsafe { libc::geteuid() }) }
 
-fn mode_from_ids((_, euid): (libc::uid_t, libc::uid_t)) -> PrivilegeMode { if euid == 0 { PrivilegeMode::Privileged } else { PrivilegeMode::Unprivileged } }
+pub fn mode_from_ids((_, euid): (libc::uid_t, libc::uid_t)) -> PrivilegeMode { if euid == 0 { PrivilegeMode::Privileged } else { PrivilegeMode::Unprivileged } }
 
-fn needs_preflight_drop((uid, euid): (libc::uid_t, libc::uid_t)) -> bool { mode_from_ids((uid, euid)) == PrivilegeMode::Privileged && uid != 0 }
+pub fn needs_preflight_drop((uid, euid): (libc::uid_t, libc::uid_t)) -> bool { mode_from_ids((uid, euid)) == PrivilegeMode::Privileged && uid != 0 }
 
 const AT_RECURSIVE: libc::c_int = 0x8000;
 const MOUNT_ATTR_RDONLY: u64 = 0x1;
@@ -139,36 +139,3 @@ fn check(ret: libc::c_int, action: &'static str) -> Result<()> { if ret != 0 { r
 fn c(s: &str) -> Result<CString> { CString::new(s).map_err(|_| Error::Usage("path contains NUL".into())) }
 
 fn c_path(p: &Path) -> Result<CString> { CString::new(p.as_os_str().as_encoded_bytes()).map_err(|_| Error::Usage("path contains NUL".into())) }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn tmpfs_skipped_when_tmp_writable() {
-        let no = Vec::new();
-        assert!(tmp_overlaps_writes(Path::new("/work"), &[PathBuf::from("/tmp")], &no));
-        assert!(tmp_overlaps_writes(Path::new("/work"), &[PathBuf::from("/tmp/foo")], &no));
-        assert!(tmp_overlaps_writes(Path::new("/tmp/proj"), &no, &no));
-        assert!(tmp_overlaps_writes(Path::new("/work"), &no, &[PathBuf::from("/tmp/f")]));
-        assert!(!tmp_overlaps_writes(Path::new("/work"), &[PathBuf::from("/data")], &no));
-    }
-
-    #[test]
-    fn non_root_uses_unprivileged_backend() {
-        assert_eq!(mode_from_ids((1000, 1000)), PrivilegeMode::Unprivileged);
-        assert!(!needs_preflight_drop((1000, 1000)));
-    }
-
-    #[test]
-    fn setuid_root_uses_privileged_backend() {
-        assert_eq!(mode_from_ids((1000, 0)), PrivilegeMode::Privileged);
-        assert!(needs_preflight_drop((1000, 0)));
-    }
-
-    #[test]
-    fn root_uses_privileged_backend_without_preflight_drop() {
-        assert_eq!(mode_from_ids((0, 0)), PrivilegeMode::Privileged);
-        assert!(!needs_preflight_drop((0, 0)));
-    }
-}

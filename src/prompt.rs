@@ -70,34 +70,3 @@ case \" ${{precmd_functions[*]}} \" in\n\
 esac\n"
     )
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_explicit_shell_names() {
-        assert_eq!(parse_shell("bash").unwrap(), PromptShell::Bash);
-        assert_eq!(parse_shell("/bin/zsh").unwrap(), PromptShell::Zsh);
-    }
-
-    #[test]
-    fn rejects_unsupported_shells() {
-        let err = parse_shell("fish").unwrap_err();
-        assert!(err.to_string().contains("only supports bash and zsh"));
-    }
-
-    #[test]
-    fn bash_script_uses_prompt_command_hook() {
-        let script = init_script(Some("bash")).unwrap();
-        assert!(script.contains("PROMPT_COMMAND"));
-        assert!(script.contains(LOCK_PREFIX));
-    }
-
-    #[test]
-    fn zsh_script_uses_precmd_hook() {
-        let script = init_script(Some("zsh")).unwrap();
-        assert!(script.contains("precmd_functions"));
-        assert!(script.contains(LOCK_PREFIX));
-    }
-}

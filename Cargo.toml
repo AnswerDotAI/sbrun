@@ -8,10 +8,13 @@ license = "Apache-2.0"
 
 [lib]
 crate-type = ["rlib"]
+doctest = false
+test = false
 
 [[bin]]
 name = "sbrun"
 path = "src/main.rs"
+test = false
 
 [dependencies]
 libc = ">=0.2"

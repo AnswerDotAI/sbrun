@@ -1,6 +1,6 @@
 [build-system]
-requires = ["maturin>=1.8,<2"]
-build-backend = "maturin"
+requires = ["maturin>=1.8,<2", "fastws-cli>=0.0.39"]
+build-backend = "fastws.build_backend"
 
 [project]
 name = "sbrun"
@@ -29,7 +29,7 @@ dev = [
 bindings = "bin"
 
 [tool.uv]
-cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.rs" }, { file = "Cargo.toml" }, { file = ".git/fastws-cargo-key" }]
+cache-keys = [{ file = "pyproject.toml" }, { file = "Cargo.toml" }]
 
 [tool.fastship]
 branch = "main"
