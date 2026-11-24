@@ -28,15 +28,16 @@ jobs:
         with:
           r2-url: ${{ secrets.SCCACHE_R2 }}
 
+      - name: Set up uv
+        uses: AnswerDotAI/.github/actions/setup-uv@main
+
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: "3.13"
 
-      - name: Install Dev Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e '.[dev]'
+      - name: Install Test Dependencies
+        run: uv pip install --system 'pytest>=8'
 
       - name: Allow Linux user namespaces
         if: runner.os == 'Linux'

@@ -38,16 +38,13 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
-
-      - name: Install maturin
-        run: python -m pip install --upgrade pip maturin
-
-      - name: Build release binary
-        run: cargo build --profile dist
+          python-version: "3.13"
 
       - name: Build Python wheel
-        run: maturin build --profile dist --out dist/py-dist
+        uses: PyO3/maturin-action@v1
+        with:
+          args: --profile dist --out dist/py-dist ${{ runner.os == 'Linux' && '--zig' || '' }}
+          manylinux: '2_31'
 
       - name: Package release assets
         run: |
@@ -57,7 +54,8 @@ jobs:
           asset="sbrun-${tag}-${{ matrix.platform }}-${arch}.tar.gz"
           default_conf="sbrun.default.${{ matrix.platform }}.toml"
           mkdir -p dist/pkg
-          cp target/dist/sbrun README.md "$default_conf" dist/pkg/
+          python -c 'import glob, os, zipfile; w = zipfile.ZipFile(glob.glob("dist/py-dist/*.whl")[0]); m = next(n for n in w.namelist() if n.endswith(".data/scripts/sbrun")); open("dist/pkg/sbrun", "wb").write(w.read(m)); os.chmod("dist/pkg/sbrun", 0o755)'
+          cp README.md "$default_conf" dist/pkg/
           tar -C dist/pkg -czf "dist/${asset}" .
           shasum -a 256 "dist/${asset}" > "dist/SHA256SUMS-${{ matrix.platform }}-${arch}"
           printf 'RELEASE_ASSET=%s\n' "dist/${asset}" >> "$GITHUB_ENV"
