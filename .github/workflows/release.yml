@@ -41,7 +41,7 @@ jobs:
           python-version: "3.13"
 
       - name: Build Python wheel
-        uses: PyO3/maturin-action@v1
+        uses: AnswerDotAI/.github/actions/maturin-build@main
         with:
           args: --profile dist --out dist/py-dist ${{ runner.os == 'Linux' && '--zig' || '' }}
           manylinux: '2_31'
