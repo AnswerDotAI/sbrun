@@ -24,12 +24,12 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Set up sccache
-        uses: AnswerDotAI/.github/actions/sccache@main
+        uses: AnswerDotAI/workflows/sccache@master
         with:
           r2-url: ${{ secrets.SCCACHE_R2 }}
 
       - name: Set up uv
-        uses: AnswerDotAI/.github/actions/setup-uv@main
+        uses: AnswerDotAI/workflows/setup-uv@master
 
       - name: Set up Python
         uses: actions/setup-python@v7

@@ -31,7 +31,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Set up sccache
-        uses: AnswerDotAI/.github/actions/sccache@main
+        uses: AnswerDotAI/workflows/sccache@master
         with:
           r2-url: ${{ secrets.SCCACHE_R2 }}
 
@@ -41,7 +41,7 @@ jobs:
           python-version: "3.13"
 
       - name: Build Python wheel
-        uses: AnswerDotAI/.github/actions/maturin-build@main
+        uses: AnswerDotAI/workflows/maturin-build@master
         with:
           args: --profile dist --out dist/py-dist ${{ runner.os == 'Linux' && '--zig' || '' }}
           manylinux: '2_31'
